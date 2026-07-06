@@ -1,0 +1,527 @@
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { type Point, getClosestPointOnSegment } from '../utils/math';
+import { ZoomIn, ZoomOut, Maximize, Scissors, Ruler, Hand } from 'lucide-react';
+
+interface DocumentViewerProps {
+  pdfDocument: any;
+  pageNum: number;
+  pageWidth: number;
+  pageHeight: number;
+  polygon: Point[];
+  setPolygon: (points: Point[]) => void;
+  calibLine: { p1: Point; p2: Point } | null;
+  setCalibLine: (line: { p1: Point; p2: Point } | null) => void;
+  activeMode: 'crop' | 'calibrate' | 'pan';
+  setActiveMode: (mode: 'crop' | 'calibrate' | 'pan') => void;
+  calibratedDistance: number | null;
+  setCalibratedDistance: (dist: number | null) => void;
+}
+
+export const DocumentViewer: React.FC<DocumentViewerProps> = ({
+  pdfDocument,
+  pageNum,
+  pageWidth,
+  pageHeight,
+  polygon,
+  setPolygon,
+  calibLine,
+  setCalibLine,
+  activeMode,
+  setActiveMode,
+  calibratedDistance,
+  setCalibratedDistance
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const renderTaskRef = useRef<any>(null);
+
+  // Zoom & Pan state
+  const [zoom, setZoom] = useState<number>(1.0);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 50, y: 50 });
+  const [isPanning, setIsPanning] = useState<boolean>(false);
+  const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Draggable state
+  const [draggedVertexIndex, setDraggedVertexIndex] = useState<number | null>(null);
+  const [draggedCalibPoint, setDraggedCalibPoint] = useState<'p1' | 'p2' | null>(null);
+
+  // Edge hover (subdivision)
+  const [hoveredEdgePoint, setHoveredEdgePoint] = useState<{ point: Point; index: number } | null>(null);
+
+  // Render PDF page to canvas
+  useEffect(() => {
+    if (!pdfDocument || !canvasRef.current) return;
+
+    const renderPage = async () => {
+      try {
+        // Cancel existing render task if active
+        if (renderTaskRef.current) {
+          renderTaskRef.current.cancel();
+        }
+
+        const page = await pdfDocument.getPage(pageNum);
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        // Render at 2x base resolution for sharp screen display
+        const renderScale = 2.0;
+        const viewport = page.getViewport({ scale: renderScale });
+        
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: viewport
+        };
+        
+        const renderTask = page.render(renderContext);
+        renderTaskRef.current = renderTask;
+        await renderTask.promise;
+      } catch (err: any) {
+        if (err.name !== 'RenderingCancelledException') {
+          console.error('PDF page render error:', err);
+        }
+      }
+    };
+
+    renderPage();
+
+    return () => {
+      if (renderTaskRef.current) {
+        renderTaskRef.current.cancel();
+      }
+    };
+  }, [pdfDocument, pageNum]);
+
+  // Center the document when loaded
+  useEffect(() => {
+    if (pageWidth > 0 && containerRef.current) {
+      const container = containerRef.current;
+      const cWidth = container.clientWidth;
+      const cHeight = container.clientHeight;
+      
+      // Scale to fit screen
+      const fitZoom = Math.min((cWidth - 80) / pageWidth, (cHeight - 80) / pageHeight, 1.5);
+      setZoom(fitZoom);
+      
+      // Center
+      setPan({
+        x: (cWidth - pageWidth * fitZoom) / 2,
+        y: (cHeight - pageHeight * fitZoom) / 2
+      });
+    }
+  }, [pageWidth, pageHeight, pageNum]);
+
+  // Transform coordinates from container-mouse space to original PDF/viewBox space
+  const screenToDocCoords = useCallback((clientX: number, clientY: number): Point => {
+    if (!containerRef.current) return { x: 0, y: 0 };
+    const rect = containerRef.current.getBoundingClientRect();
+    
+    // Position relative to container
+    const rx = clientX - rect.left;
+    const ry = clientY - rect.top;
+    
+    // Reverse zoom and pan
+    return {
+      x: (rx - pan.x) / zoom,
+      y: (ry - pan.y) / zoom
+    };
+  }, [pan, zoom]);
+
+  // Handle zooming via mouse wheel
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    if (!containerRef.current) return;
+
+    const zoomIntensity = 0.1;
+    const mouseDocPos = screenToDocCoords(e.clientX, e.clientY);
+    
+    let nextZoom = zoom - e.deltaY * zoomIntensity * 0.01 * zoom;
+    nextZoom = Math.max(0.2, Math.min(6.0, nextZoom));
+
+    // Shift pan offset to center zoom on mouse position
+    const rect = containerRef.current.getBoundingClientRect();
+    const rx = e.clientX - rect.left;
+    const ry = e.clientY - rect.top;
+
+    setZoom(nextZoom);
+    setPan({
+      x: rx - mouseDocPos.x * nextZoom,
+      y: ry - mouseDocPos.y * nextZoom
+    });
+  };
+
+  // Mouse pan handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Start panning on middle click, spacebar hold, or pan mode
+    const isMiddleClick = e.button === 1;
+    const isPanMode = activeMode === 'pan' && e.button === 0;
+
+    if (isMiddleClick || isPanMode) {
+      e.preventDefault();
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isPanning) {
+      setPan({
+        x: e.clientX - panStart.x,
+        y: e.clientY - panStart.y
+      });
+      return;
+    }
+
+    const mouseDoc = screenToDocCoords(e.clientX, e.clientY);
+
+    // 1. Handle vertex dragging
+    if (draggedVertexIndex !== null && activeMode === 'crop') {
+      const nextPoints = [...polygon];
+      nextPoints[draggedVertexIndex] = {
+        x: Math.max(0, Math.min(pageWidth, mouseDoc.x)),
+        y: Math.max(0, Math.min(pageHeight, mouseDoc.y))
+      };
+      setPolygon(nextPoints);
+      return;
+    }
+
+    // 2. Handle calibration pin dragging
+    if (draggedCalibPoint !== null && calibLine && activeMode === 'calibrate') {
+      const nextLine = { ...calibLine };
+      nextLine[draggedCalibPoint] = {
+        x: Math.max(0, Math.min(pageWidth, mouseDoc.x)),
+        y: Math.max(0, Math.min(pageHeight, mouseDoc.y))
+      };
+      setCalibLine(nextLine);
+      return;
+    }
+
+    // 3. Handle edge hover check (only in crop mode and when not dragging)
+    if (activeMode === 'crop' && draggedVertexIndex === null) {
+      let closestEdge: { point: Point; index: number; dist: number } | null = null;
+      const hoverThreshold = 10 / zoom; // 10 screen pixels
+
+      for (let i = 0; i < polygon.length; i++) {
+        const a = polygon[i];
+        const b = polygon[(i + 1) % polygon.length];
+        const res = getClosestPointOnSegment(mouseDoc, a, b);
+
+        if (res.distance < hoverThreshold) {
+          if (!closestEdge || res.distance < closestEdge.dist) {
+            closestEdge = { point: res.point, index: i, dist: res.distance };
+          }
+        }
+      }
+
+      if (closestEdge) {
+        setHoveredEdgePoint({ point: closestEdge.point, index: closestEdge.index });
+      } else {
+        setHoveredEdgePoint(null);
+      }
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsPanning(false);
+    setDraggedVertexIndex(null);
+    setDraggedCalibPoint(null);
+  };
+
+  // Click on SVG edge to insert a vertex
+  const handleSvgClick = (e: React.MouseEvent) => {
+    if (activeMode === 'crop' && hoveredEdgePoint) {
+      e.stopPropagation();
+      const insertIndex = hoveredEdgePoint.index + 1;
+      const nextPoints = [...polygon];
+      nextPoints.splice(insertIndex, 0, hoveredEdgePoint.point);
+      setPolygon(nextPoints);
+      setHoveredEdgePoint(null);
+    }
+  };
+
+  // Delete a vertex on right-click or double-click
+  const handleVertexDelete = (index: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (polygon.length > 3) {
+      const nextPoints = polygon.filter((_, i) => i !== index);
+      setPolygon(nextPoints);
+      setHoveredEdgePoint(null);
+    }
+  };
+
+  // Convert polygon points to SVG path syntax
+  const getSvgPolygonPoints = (): string => {
+    return polygon.map(p => `${p.x},${p.y}`).join(' ');
+  };
+
+  // Create SVG path for the inverted mask overlay
+  const getMaskPath = (): string => {
+    return `M 0 0 h ${pageWidth} v ${pageHeight} h -${pageWidth} Z 
+            M ${polygon[0].x} ${polygon[0].y} 
+            ${polygon.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ')} Z`;
+  };
+
+  // Calibrator click to place points if not already existing
+  const handleSvgBackgroundClick = (e: React.MouseEvent) => {
+    if (activeMode === 'calibrate') {
+      const pt = screenToDocCoords(e.clientX, e.clientY);
+      if (!calibLine) {
+        // Place first point
+        setCalibLine({ p1: pt, p2: { x: pt.x + 80, y: pt.y } });
+        setCalibratedDistance(null);
+      }
+    }
+  };
+
+  return (
+    <div 
+      className="viewer-container" 
+      ref={containerRef}
+      onWheel={handleWheel}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{ overflow: 'hidden' }}
+    >
+      {/* Zoom / Pan Container Wrapper */}
+      <div 
+        className="viewer-canvas-wrapper"
+        style={{
+          width: `${pageWidth}px`,
+          height: `${pageHeight}px`,
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+        }}
+      >
+        {/* Rendered PDF Page */}
+        <canvas 
+          ref={canvasRef} 
+          className="viewer-canvas"
+          style={{ width: '100%', height: '100%' }}
+        />
+
+        {/* Interactive Overlay Graphics */}
+        <svg 
+          className="viewer-overlay"
+          viewBox={`0 0 ${pageWidth} ${pageHeight}`}
+          style={{ 
+            width: '100%', 
+            height: '100%', 
+            position: 'absolute', 
+            top: 0, 
+            left: 0,
+            pointerEvents: 'auto',
+            cursor: activeMode === 'pan' ? (isPanning ? 'grabbing' : 'grab') : 'crosshair'
+          }}
+          onClick={handleSvgBackgroundClick}
+        >
+          {/* 1. MASK OVERLAY (dims everything outside crop area) */}
+          {activeMode === 'crop' && polygon.length >= 3 && (
+            <path
+              d={getMaskPath()}
+              fill="rgba(9, 13, 22, 0.65)"
+              fillRule="evenodd"
+              onClick={handleSvgClick}
+            />
+          )}
+
+          {/* 2. CROP POLYGON OUTLINE */}
+          {activeMode === 'crop' && (
+            <polygon
+              points={getSvgPolygonPoints()}
+              fill="rgba(99, 102, 241, 0.05)"
+              stroke="#6366f1"
+              strokeWidth={2 / zoom}
+              strokeDasharray={4 / zoom}
+            />
+          )}
+
+          {/* 3. EDGE SUBDIVISION INDICATOR */}
+          {activeMode === 'crop' && hoveredEdgePoint && (
+            <g
+              transform={`translate(${hoveredEdgePoint.point.x}, ${hoveredEdgePoint.point.y})`}
+              style={{ cursor: 'pointer' }}
+              onClick={handleSvgClick}
+            >
+              <circle
+                r={6 / zoom}
+                fill="#a855f7"
+                stroke="white"
+                strokeWidth={1.5 / zoom}
+              />
+              <path
+                d={`M -3 0 h 6 M 0 -3 v 6`}
+                stroke="white"
+                strokeWidth={1 / zoom}
+              />
+            </g>
+          )}
+
+          {/* 4. DRAGGABLE POLYGON VERTICES */}
+          {activeMode === 'crop' && polygon.map((pt, idx) => (
+            <circle
+              key={`vertex-${idx}`}
+              cx={pt.x}
+              cy={pt.y}
+              r={7 / zoom}
+              fill="#6366f1"
+              stroke="#ffffff"
+              strokeWidth={2 / zoom}
+              style={{ cursor: 'move' }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                setDraggedVertexIndex(idx);
+              }}
+              onDoubleClick={(e) => handleVertexDelete(idx, e)}
+              onContextMenu={(e) => handleVertexDelete(idx, e)}
+            />
+          ))}
+
+          {/* 5. SCALE CALIBRATION LINE */}
+          {activeMode === 'calibrate' && calibLine && (
+            <g>
+              {/* Connecting line */}
+              <line
+                x1={calibLine.p1.x}
+                y1={calibLine.p1.y}
+                x2={calibLine.p2.x}
+                y2={calibLine.p2.y}
+                stroke="#10b981"
+                strokeWidth={3 / zoom}
+              />
+              
+              {/* Pin 1 */}
+              <circle
+                cx={calibLine.p1.x}
+                cy={calibLine.p1.y}
+                r={9 / zoom}
+                fill="#10b981"
+                stroke="#ffffff"
+                strokeWidth={2 / zoom}
+                style={{ cursor: 'move' }}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  setDraggedCalibPoint('p1');
+                }}
+              />
+              
+              {/* Pin 2 */}
+              <circle
+                cx={calibLine.p2.x}
+                cy={calibLine.p2.y}
+                r={9 / zoom}
+                fill="#10b981"
+                stroke="#ffffff"
+                strokeWidth={2 / zoom}
+                style={{ cursor: 'move' }}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  setDraggedCalibPoint('p2');
+                }}
+              />
+
+              {/* Text label with calibration info */}
+              <foreignObject
+                x={Math.min(calibLine.p1.x, calibLine.p2.x)}
+                y={Math.min(calibLine.p1.y, calibLine.p2.y) - 40 / zoom}
+                width={200 / zoom}
+                height={35 / zoom}
+                style={{ overflow: 'visible', pointerEvents: 'none' }}
+              >
+                <div 
+                  style={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--success)',
+                    borderRadius: '4px',
+                    padding: '2px 6px',
+                    fontSize: `${Math.max(10, 11 / zoom)}px`,
+                    color: 'white',
+                    display: 'inline-block',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.2)',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {calibratedDistance 
+                    ? `Kalibriert: ${calibratedDistance.toFixed(2)}m` 
+                    : 'Ziehe Pins an Wandenden'}
+                </div>
+              </foreignObject>
+            </g>
+          )}
+        </svg>
+      </div>
+
+      {/* Mode Indicators and Floating Controls */}
+      <div className="info-badge">
+        Page {pageNum} | Zoom: {Math.round(zoom * 100)}%
+      </div>
+
+      {/* Floating Toolbar */}
+      <div className="floating-toolbar">
+        <button 
+          className={`toolbar-btn ${activeMode === 'pan' ? 'active' : ''}`}
+          onClick={() => setActiveMode('pan')}
+          title="Plan verschieben (Hand)"
+        >
+          <Hand size={16} />
+        </button>
+        <button 
+          className={`toolbar-btn ${activeMode === 'crop' ? 'active' : ''}`}
+          onClick={() => setActiveMode('crop')}
+          title="Zuschnitt bearbeiten (Polygon)"
+        >
+          <Scissors size={16} />
+        </button>
+        <button 
+          className={`toolbar-btn ${activeMode === 'calibrate' ? 'active' : ''}`}
+          onClick={() => setActiveMode('calibrate')}
+          title="Maßstab kalibrieren (Lineal)"
+        >
+          <Ruler size={16} />
+        </button>
+        
+        <div className="toolbar-separator" />
+        
+        <button 
+          className="toolbar-btn"
+          onClick={() => setZoom(z => Math.min(z + 0.15, 6.0))}
+          title="Heranzoomen"
+        >
+          <ZoomIn size={16} />
+        </button>
+        <button 
+          className="toolbar-btn"
+          onClick={() => setZoom(z => Math.max(z - 0.15, 0.2))}
+          title="Herauszoomen"
+        >
+          <ZoomOut size={16} />
+        </button>
+        <button 
+          className="toolbar-btn"
+          onClick={() => {
+            if (containerRef.current) {
+              const cWidth = containerRef.current.clientWidth;
+              const cHeight = containerRef.current.clientHeight;
+              const fitZoom = Math.min((cWidth - 80) / pageWidth, (cHeight - 80) / pageHeight);
+              setZoom(fitZoom);
+              setPan({
+                x: (cWidth - pageWidth * fitZoom) / 2,
+                y: (cHeight - pageHeight * fitZoom) / 2
+              });
+            }
+          }}
+          title="Ganzes Blatt anzeigen"
+        >
+          <Maximize size={16} />
+        </button>
+      </div>
+    </div>
+  );
+};
