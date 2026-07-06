@@ -26,6 +26,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null);
+  const wasDragging = useRef<boolean>(false);
 
   // Zoom & Pan state
   const [zoom, setZoom] = useState<number>(1.0);
@@ -192,6 +193,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       
       setPolygon(nextPoints);
       setDragPolygonStart(mouseDoc);
+      wasDragging.current = true;
       return;
     }
 
@@ -203,6 +205,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         y: Math.max(0, Math.min(pageHeight, mouseDoc.y))
       };
       setPolygon(nextPoints);
+      wasDragging.current = true;
       return;
     }
 
@@ -235,10 +238,17 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     setIsPanning(false);
     setDraggedVertexIndex(null);
     setIsDraggingPolygon(false);
+    setTimeout(() => {
+      wasDragging.current = false;
+    }, 50);
   };
 
   // Click on SVG edge to insert a vertex
   const handleSvgClick = (e: React.MouseEvent) => {
+    if (wasDragging.current) {
+      e.stopPropagation();
+      return;
+    }
     if (activeMode === 'crop' && hoveredEdgePoint) {
       e.stopPropagation();
       const insertIndex = hoveredEdgePoint.index + 1;

@@ -154,47 +154,55 @@ function App() {
 
         if (apts.length > 0) {
           setSelectedApartment(apts[0].name);
-          // Bounding box calculation will be handled reactively by the second useEffect
         } else {
-          // Define default crop rectangle: 60% of width/height centered
-          const w = data.width;
-          const h = data.height;
-          const defaultPoly = [
-            { x: w * 0.2, y: h * 0.2 },
-            { x: w * 0.8, y: h * 0.2 },
-            { x: w * 0.8, y: h * 0.8 },
-            { x: w * 0.2, y: h * 0.8 }
-          ];
-          applyPolygonAndAutoOrientation(defaultPoly);
+          setSelectedApartment(null);
         }
       }
     };
 
     fetchPageInfo();
-  }, [pdfDocument, currentPage, getPageData, applyPolygonAndAutoOrientation]);
+  }, [pdfDocument, currentPage, getPageData]);
 
   // Reactively compute the crop box when selectedApartment or padding changes
   useEffect(() => {
-    if (selectedApartment && pageData) {
-      const exists = detectedApartments.some(apt => apt.name.toLowerCase() === selectedApartment.toLowerCase().trim());
-      if (exists) {
-        const bbox = getApartmentBoundingBox(
-          pageData.textItems,
-          selectedApartment,
-          autoCropPadding,
-          pageData.width,
-          pageData.height
-        );
-        if (bbox) {
-          const poly = bboxToPolygon(bbox);
-          const height = pageData.height;
-          const flippedPoly = poly.map(pt => ({
-            x: pt.x,
-            y: height - pt.y
-          }));
-          applyPolygonAndAutoOrientation(flippedPoly);
-        }
+    if (!pageData) return;
+
+    const exists = selectedApartment 
+      ? detectedApartments.some(apt => apt.name.toLowerCase() === selectedApartment.toLowerCase().trim())
+      : false;
+
+    if (exists && selectedApartment) {
+      const bbox = getApartmentBoundingBox(
+        pageData.textItems,
+        selectedApartment,
+        autoCropPadding,
+        pageData.width,
+        pageData.height
+      );
+      if (bbox) {
+        const poly = bboxToPolygon(bbox);
+        const height = pageData.height;
+        const flippedPoly = poly.map(pt => ({
+          x: pt.x,
+          y: height - pt.y
+        }));
+        applyPolygonAndAutoOrientation(flippedPoly);
       }
+    } else {
+      // Default centered crop box responsive to the autoCropPadding slider
+      const w = pageData.width;
+      const h = pageData.height;
+      
+      const marginX = Math.min(w * 0.4, autoCropPadding * (w / 425));
+      const marginY = Math.min(h * 0.4, autoCropPadding * (h / 425));
+
+      const defaultPoly = [
+        { x: marginX, y: marginY },
+        { x: w - marginX, y: marginY },
+        { x: w - marginX, y: h - marginY },
+        { x: marginX, y: h - marginY }
+      ];
+      applyPolygonAndAutoOrientation(defaultPoly);
     }
   }, [selectedApartment, autoCropPadding, pageData, detectedApartments, applyPolygonAndAutoOrientation]);
 
