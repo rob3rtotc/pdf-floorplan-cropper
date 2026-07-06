@@ -3,6 +3,7 @@ import { usePDFParser, type PDFPageData } from './hooks/usePDFParser';
 import { detectApartments, getApartmentBoundingBox, bboxToPolygon, type DetectedApartment } from './utils/autoDetect';
 import { type Point, getDistance } from './utils/math';
 import { renderCroppedArea, exportToA4Pdf, type ExportOptions } from './utils/exportHelper';
+import { recognizeApartmentNumber } from './utils/ocr';
 import { DocumentViewer } from './components/DocumentViewer';
 import { ControlPanel } from './components/ControlPanel';
 import { GoogleDriveModal } from './components/GoogleDriveModal';
@@ -52,6 +53,7 @@ function App() {
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [croppedCanvas, setCroppedCanvas] = useState<HTMLCanvasElement | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [isOcrLoading, setIsOcrLoading] = useState<boolean>(false);
   
   // Toast notifications
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -129,30 +131,56 @@ function App() {
     fetchPageInfo();
   }, [pdfDocument, currentPage, getPageData]);
 
-  // Handle selection of a detected apartment unit
+  // Handle selection of a detected apartment unit or manual text typing
   const handleSelectApartment = (aptName: string) => {
-    if (!pageData) return;
-    
     setSelectedApartment(aptName);
     
-    // Auto-calculate bounding box from rooms with text matches
-    const bbox = getApartmentBoundingBox(pageData.textItems, aptName, 50);
-    if (bbox) {
-      const poly = bboxToPolygon(bbox);
-      
-      // Since our polygon coordinate system uses top-left origin (viewport space)
-      // and pdf.js bounding boxes are in bottom-left origin (PDF space),
-      // we need to flip the y-coordinates to map properly onto our viewer!
-      const height = pageData.height;
-      const flippedPoly = poly.map(pt => ({
-        x: pt.x,
-        y: height - pt.y
-      }));
+    // Only auto-crop if the apartment exists in our parsed list (to avoid jumping while typing custom names)
+    const exists = detectedApartments.some(apt => apt.name.toLowerCase() === aptName.toLowerCase().trim());
+    if (exists && pageData) {
+      const bbox = getApartmentBoundingBox(pageData.textItems, aptName, 50);
+      if (bbox) {
+        const poly = bboxToPolygon(bbox);
+        
+        // Since our polygon coordinate system uses top-left origin (viewport space)
+        // and pdf.js bounding boxes are in bottom-left origin (PDF space),
+        // we need to flip the y-coordinates to map properly onto our viewer!
+        const height = pageData.height;
+        const flippedPoly = poly.map(pt => ({
+          x: pt.x,
+          y: height - pt.y
+        }));
 
-      setPolygon(flippedPoly);
-      showToast(`Zuschnitt für WE ${aptName} automatisch gesetzt.`, 'success');
-    } else {
-      showToast('Konnte keine Räume der Wohnung auf dem Plan orten.', 'info');
+        setPolygon(flippedPoly);
+        showToast(`Zuschnitt für WE ${aptName} automatisch gesetzt.`, 'success');
+      }
+    }
+  };
+
+  // Run OCR on the selected crop area to recognize apartment number
+  const handleScanApartment = async () => {
+    if (!pdfDocument || !pageData || polygon.length < 3) return;
+
+    try {
+      setIsOcrLoading(true);
+      showToast('Analysiere Ausschnitt auf Text...', 'info');
+      
+      const page = await pdfDocument.getPage(currentPage);
+      // Render at 2x scale for decent OCR quality without being too heavy
+      const canvas = await renderCroppedArea(page, polygon, 2.0);
+      
+      const detected = await recognizeApartmentNumber(canvas);
+      if (detected) {
+        setSelectedApartment(detected);
+        showToast(`Wohnung WE ${detected} erfolgreich erkannt!`, 'success');
+      } else {
+        showToast('Keine Wohnungsnummer im Ausschnitt per OCR erkannt.', 'info');
+      }
+    } catch (err) {
+      console.error('OCR scanning error:', err);
+      showToast('OCR-Erkennung fehlgeschlagen.', 'error');
+    } finally {
+      setIsOcrLoading(false);
     }
   };
 
@@ -251,6 +279,8 @@ function App() {
         detectedApartments={detectedApartments}
         selectedApartment={selectedApartment}
         onSelectApartment={handleSelectApartment}
+        onScanApartment={handleScanApartment}
+        isOcrLoading={isOcrLoading}
         activeMode={activeMode}
         setActiveMode={setActiveMode}
         calibLine={calibLine}

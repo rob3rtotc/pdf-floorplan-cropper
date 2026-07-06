@@ -42,12 +42,11 @@ export async function renderCroppedArea(
     viewport: viewport
   }).promise;
   
-  // 3. Convert polygon PDF coordinates to viewport coordinates
-  const viewportPoints = polygon.map(pt => {
-    // pdf.js convertToViewportPoint converts [x, y] to [vx, vy]
-    const [vx, vy] = viewport.convertToViewportPoint(pt.x, pt.y);
-    return { x: vx, y: vy };
-  });
+  // 3. Convert polygon points to target high-DPI viewport scale
+  const viewportPoints = polygon.map(pt => ({
+    x: pt.x * exportScale,
+    y: pt.y * exportScale
+  }));
   
   // 4. Calculate bounding box of viewport points
   let minX = Infinity;

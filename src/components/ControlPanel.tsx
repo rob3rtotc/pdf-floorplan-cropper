@@ -3,7 +3,7 @@ import type { Point } from '../utils/math';
 import type { DetectedApartment } from '../utils/autoDetect';
 import { 
   Upload, FileText, ChevronLeft, ChevronRight, Check, 
-  Ruler, AlertCircle, FileDown, Layers
+  Ruler, AlertCircle, FileDown, Layers, Compass
 } from 'lucide-react';
 
 interface ControlPanelProps {
@@ -16,6 +16,8 @@ interface ControlPanelProps {
   detectedApartments: DetectedApartment[];
   selectedApartment: string | null;
   onSelectApartment: (aptName: string) => void;
+  onScanApartment: () => void;
+  isOcrLoading: boolean;
   activeMode: 'crop' | 'calibrate' | 'pan';
   setActiveMode: (mode: 'crop' | 'calibrate' | 'pan') => void;
   calibLine: { p1: Point; p2: Point } | null;
@@ -49,6 +51,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   detectedApartments,
   selectedApartment,
   onSelectApartment,
+  onScanApartment,
+  isOcrLoading,
   activeMode,
   setActiveMode,
   calibLine,
@@ -181,24 +185,62 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             <h2 className="card-title">
               <Check size={16} /> 2. Wohnung wählen
             </h2>
-            {detectedApartments.length === 0 ? (
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Keine Wohnungsbezeichnungen auf dieser Seite erkannt. Zeichne den Zuschnitt manuell.
-              </p>
-            ) : (
-              <div className="apartment-list">
-                {detectedApartments.map(apt => (
-                  <div 
-                    key={`apt-${apt.name}`}
-                    className={`apartment-item ${selectedApartment === apt.name ? 'active' : ''}`}
-                    onClick={() => onSelectApartment(apt.name)}
-                  >
-                    <span className="apartment-name">WE {apt.name}</span>
-                    <span className="apartment-count">{apt.count} Räume</span>
-                  </div>
-                ))}
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div className="input-group" style={{ margin: 0 }}>
+                <label className="input-label">Wohnungsbezeichnung (z. B. 11.01)</label>
+                <input 
+                  type="text" 
+                  placeholder="z. B. 11.01" 
+                  value={selectedApartment || ''}
+                  onChange={(e) => onSelectApartment(e.target.value)}
+                  className="input-field" 
+                />
               </div>
-            )}
+
+              <button 
+                className="btn btn-secondary" 
+                style={{ padding: '0.625rem', fontSize: '0.825rem', display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}
+                onClick={onScanApartment}
+                disabled={isOcrLoading}
+              >
+                {isOcrLoading ? (
+                  <>
+                    <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />
+                    Scanne Ausschnitt...
+                  </>
+                ) : (
+                  <>
+                    <Compass size={15} style={{ color: 'var(--primary)' }} />
+                    Wohnungsnummer scannen (OCR)
+                  </>
+                )}
+              </button>
+
+              {detectedApartments.length > 0 && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '0.375rem' }}>Erkannte Bezeichnungen:</label>
+                  <div className="apartment-list">
+                    {detectedApartments.map(apt => (
+                      <div 
+                        key={`apt-${apt.name}`}
+                        className={`apartment-item ${selectedApartment === apt.name ? 'active' : ''}`}
+                        onClick={() => onSelectApartment(apt.name)}
+                      >
+                        <span className="apartment-name">WE {apt.name}</span>
+                        <span className="apartment-count">{apt.count} Räume</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {detectedApartments.length === 0 && (
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '0.25rem' }}>
+                  Keine Bezeichnungen im PDF-Textlayer gefunden. Benutze OCR-Scan oder trage die Nummer manuell ein.
+                </p>
+              )}
+            </div>
           </section>
         )}
 
