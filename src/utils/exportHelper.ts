@@ -126,9 +126,6 @@ export async function exportToA4Pdf(
     apartmentName,
     projectName,
     orientation,
-    scaleMode,
-    targetScale,
-    pdfPointsPerMeter,
     customText
   } = options;
   
@@ -156,39 +153,18 @@ export async function exportToA4Pdf(
   const bboxWidth = polygonBbox.maxX - polygonBbox.minX;
   const bboxHeight = polygonBbox.maxY - polygonBbox.minY;
   
+  const aspect = bboxWidth / bboxHeight;
+  const printableAspect = printableWidth / printableHeight;
+  
   let targetWidthPt: number;
   let targetHeightPt: number;
-  let isScaleExceeded = false;
   
-  if (scaleMode === 'fixed' && pdfPointsPerMeter) {
-    // 1. Fixed scale export (e.g., 1:100)
-    // Points per meter on output paper at targetScale (e.g., 1:100: 1m = 10mm = 28.346 pt)
-    const mmPerMeter = 1000 / targetScale;
-    const targetPointsPerMeter = (mmPerMeter * 72) / 25.4;
-    
-    // Scale factor from original PDF points to output points:
-    const scaleFactor = targetPointsPerMeter / pdfPointsPerMeter;
-    
-    targetWidthPt = bboxWidth * scaleFactor;
-    targetHeightPt = bboxHeight * scaleFactor;
-    
-    // Check if the plan fits on A4
-    if (targetWidthPt > printableWidth || targetHeightPt > printableHeight) {
-      isScaleExceeded = true;
-      // If it exceeds, we still draw it centered, but it will be clipped by page margins
-    }
+  if (aspect > printableAspect) {
+    targetWidthPt = printableWidth;
+    targetHeightPt = printableWidth / aspect;
   } else {
-    // 2. Fit to page
-    const aspect = bboxWidth / bboxHeight;
-    const printableAspect = printableWidth / printableHeight;
-    
-    if (aspect > printableAspect) {
-      targetWidthPt = printableWidth;
-      targetHeightPt = printableWidth / aspect;
-    } else {
-      targetHeightPt = printableHeight;
-      targetWidthPt = printableHeight * aspect;
-    }
+    targetHeightPt = printableHeight;
+    targetWidthPt = printableHeight * aspect;
   }
   
   // Center coordinates on the A4 page
@@ -229,14 +205,7 @@ export async function exportToA4Pdf(
   doc.setFontSize(9);
   doc.setTextColor(148, 163, 184); // Slate-400
   
-  let scaleText = 'Maßstab: Anpassung an Seitengröße';
-  if (scaleMode === 'fixed') {
-    scaleText = `Maßstab: 1:${targetScale} (im Druck)`;
-    if (isScaleExceeded) {
-      scaleText += ' *Plan überschreitet Druckbereich bei 1:' + targetScale + '*';
-    }
-  }
-  doc.text(scaleText, 40, a4Height - 32);
+  // Footer text disclaimer only (removed scaleText per user request)
   
   const disclamer = customText || 'Grundriss ohne Gewähr. Alle Maße sind Circa-Angaben.';
   doc.text(disclamer, a4Width - 40, a4Height - 32, { align: 'right' });

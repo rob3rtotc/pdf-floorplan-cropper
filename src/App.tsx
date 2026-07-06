@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePDFParser, type PDFPageData } from './hooks/usePDFParser';
 import { detectApartments, getApartmentBoundingBox, bboxToPolygon, type DetectedApartment } from './utils/autoDetect';
-import { type Point, type BoundingBox, getDistance } from './utils/math';
+import { type Point, type BoundingBox } from './utils/math';
 import { renderCroppedArea, exportToA4Pdf, type ExportOptions } from './utils/exportHelper';
 import { recognizeApartmentNumber } from './utils/ocr';
 import { DocumentViewer } from './components/DocumentViewer';
@@ -27,15 +27,10 @@ function App() {
   const [pageData, setPageData] = useState<PDFPageData | null>(null);
 
   // Interaction modes: 'crop', 'calibrate', 'pan'
-  const [activeMode, setActiveMode] = useState<'crop' | 'calibrate' | 'pan'>('pan');
+  const [activeMode, setActiveMode] = useState<'crop' | 'pan'>('pan');
 
   // Polygon selection points (in CSS pixels / points matching viewBox)
   const [polygon, setPolygon] = useState<Point[]>([]);
-
-  // Calibration tool line & values
-  const [calibLine, setCalibLine] = useState<{ p1: Point; p2: Point } | null>(null);
-  const [calibratedDistance, setCalibratedDistance] = useState<number | null>(null); // px per meter
-  const [calibDistanceMeters, setCalibDistanceMeters] = useState<number | null>(null);
 
   // Selected apartment and detected lists
   const [detectedApartments, setDetectedApartments] = useState<DetectedApartment[]>([]);
@@ -44,8 +39,6 @@ function App() {
   // Export metadata
   const [projectName, setProjectName] = useState<string>('');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
-  const [scaleMode, setScaleMode] = useState<'fit' | 'fixed'>('fit');
-  const [targetScale, setTargetScale] = useState<number>(100);
   const [customText, setCustomText] = useState<string>('Alle Angaben ohne Gewähr. Maße sind vor Ort zu überprüfen.');
 
   // Modals & UI feedback
@@ -66,16 +59,26 @@ function App() {
     }, 3000);
   }, []);
 
+  // Helper to extract a project name from the filename
+  const extractProjectName = (name: string): string => {
+    let base = name.replace(/\.[^/.]+$/, ""); // Strip file extension
+    base = base.replace(/[_-]/g, " ");
+    return base
+      .split(/\s+/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ")
+      .trim();
+  };
+
   // Handle file uploads
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setFileName(file.name);
+    setProjectName(extractProjectName(file.name));
     setCurrentPage(1);
     setSelectedApartment(null);
-    setCalibratedDistance(null);
-    setCalibLine(null);
     
     const doc = await loadPDF(file);
     if (doc) {
@@ -86,11 +89,21 @@ function App() {
 
   // Handle URL uploads (e.g. from Google Drive proxy or web link)
   const handleLoadUrl = async (url: string) => {
-    setFileName('Web-Dokument.pdf');
+    let name = 'Web-Dokument.pdf';
+    if (url.includes('docs.google.com')) {
+      name = 'Google Drive Plan';
+    } else {
+      try {
+        const parts = url.split('/');
+        name = decodeURIComponent(parts[parts.length - 1].split(/[?#]/)[0]) || 'Web-Plan';
+      } catch {
+        name = 'Web-Plan';
+      }
+    }
+    setFileName(name);
+    setProjectName(extractProjectName(name));
     setCurrentPage(1);
     setSelectedApartment(null);
-    setCalibratedDistance(null);
-    setCalibLine(null);
 
     const doc = await loadPDF(url);
     if (doc) {
@@ -99,26 +112,28 @@ function App() {
     }
   };
 
-  // Helper to update crop polygon and automatically recommend/set print orientation
+  // Helper to update crop polygon
   const applyPolygonAndAutoOrientation = useCallback((poly: Point[]) => {
     setPolygon(poly);
-    
-    if (poly.length < 3) return;
+  }, []);
+
+  // Automatically adjust orientation when crop polygon coordinates change
+  useEffect(() => {
+    if (polygon.length < 3) return;
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
-    poly.forEach(p => {
+    polygon.forEach(p => {
       if (p.x < minX) minX = p.x;
       if (p.y < minY) minY = p.y;
       if (p.x > maxX) maxX = p.x;
       if (p.y > maxY) maxY = p.y;
     });
-    
     const w = maxX - minX;
     const h = maxY - minY;
     setOrientation(w >= h ? 'landscape' : 'portrait');
-  }, []);
+  }, [polygon]);
 
   // Fetch page details and run detection when page changes
   useEffect(() => {
@@ -216,18 +231,6 @@ function App() {
     }
   };
 
-  // Process scale calibration
-  const handleCalibrate = (meters: number) => {
-    if (!calibLine) return;
-    
-    const distPx = getDistance(calibLine.p1, calibLine.p2);
-    setCalibratedDistance(distPx / meters);
-    setCalibDistanceMeters(meters);
-    
-    showToast('Maßstab kalibriert!', 'success');
-    setActiveMode('crop');
-  };
-
   // Trigger high-res rendering and open A4 preview
   const handleExportClick = async () => {
     if (!pdfDocument || !pageData || polygon.length < 3) return;
@@ -273,11 +276,10 @@ function App() {
         projectName: projectName,
         format: 'pdf',
         orientation: orientation,
-        scaleMode: scaleMode,
-        targetScale: targetScale,
-        pixelToMeterRatio: calibratedDistance,
-        // original PDF points per meter (in viewport coordinates it maps 1-to-1 to PDF points)
-        pdfPointsPerMeter: calibratedDistance, 
+        scaleMode: 'fit',
+        targetScale: 100,
+        pixelToMeterRatio: null,
+        pdfPointsPerMeter: null,
         showLegend: true,
         customText: customText
       };
@@ -350,25 +352,10 @@ function App() {
         autoCropPadding={autoCropPadding}
         setAutoCropPadding={setAutoCropPadding}
         recommendedOrientation={recommendedOrientation}
-        activeMode={activeMode}
-        setActiveMode={setActiveMode}
-        calibLine={calibLine}
-        calibratedDistance={calibDistanceMeters}
-        setCalibratedDistance={(d) => {
-          if (d === null) {
-            setCalibratedDistance(null);
-            setCalibDistanceMeters(null);
-          }
-        }}
-        onCalibrate={handleCalibrate}
         projectName={projectName}
         setProjectName={setProjectName}
         orientation={orientation}
         setOrientation={setOrientation}
-        scaleMode={scaleMode}
-        setScaleMode={setScaleMode}
-        targetScale={targetScale}
-        setTargetScale={setTargetScale}
         customText={customText}
         setCustomText={setCustomText}
         onExport={handleExportClick}
@@ -422,12 +409,8 @@ function App() {
               pageHeight={pageData.height}
               polygon={polygon}
               setPolygon={setPolygon}
-              calibLine={calibLine}
-              setCalibLine={setCalibLine}
               activeMode={activeMode}
               setActiveMode={setActiveMode}
-              calibratedDistance={calibratedDistance}
-              setCalibratedDistance={setCalibratedDistance}
             />
           )
         )}
@@ -460,9 +443,6 @@ function App() {
         apartmentName={selectedApartment || ''}
         projectName={projectName}
         orientation={orientation}
-        scaleMode={scaleMode}
-        targetScale={targetScale}
-        pdfPointsPerMeter={calibratedDistance}
         customText={customText}
       />
     </div>

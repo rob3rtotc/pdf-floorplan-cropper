@@ -11,9 +11,6 @@ interface ExportPreviewProps {
   apartmentName: string;
   projectName: string;
   orientation: 'portrait' | 'landscape';
-  scaleMode: 'fit' | 'fixed';
-  targetScale: number;
-  pdfPointsPerMeter: number | null;
   customText: string;
 }
 
@@ -26,9 +23,6 @@ export const ExportPreview: React.FC<ExportPreviewProps> = ({
   apartmentName,
   projectName,
   orientation,
-  scaleMode,
-  targetScale,
-  pdfPointsPerMeter,
   customText
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -99,32 +93,18 @@ export const ExportPreview: React.FC<ExportPreviewProps> = ({
   const bboxWidth = polygonBbox.maxX - polygonBbox.minX;
   const bboxHeight = polygonBbox.maxY - polygonBbox.minY;
   
+  const aspect = bboxWidth / bboxHeight;
+  const printableAspect = printableWidth / printableHeight;
+  
   let targetWidthPt = 0;
   let targetHeightPt = 0;
-  let isScaleExceeded = false;
   
-  if (scaleMode === 'fixed' && pdfPointsPerMeter) {
-    const mmPerMeter = 1000 / targetScale;
-    const targetPointsPerMeter = (mmPerMeter * 72) / 25.4;
-    const scaleFactor = targetPointsPerMeter / pdfPointsPerMeter;
-    
-    targetWidthPt = bboxWidth * scaleFactor;
-    targetHeightPt = bboxHeight * scaleFactor;
-    
-    if (targetWidthPt > printableWidth || targetHeightPt > printableHeight) {
-      isScaleExceeded = true;
-    }
+  if (aspect > printableAspect) {
+    targetWidthPt = printableWidth;
+    targetHeightPt = printableWidth / aspect;
   } else {
-    const aspect = bboxWidth / bboxHeight;
-    const printableAspect = printableWidth / printableHeight;
-    
-    if (aspect > printableAspect) {
-      targetWidthPt = printableWidth;
-      targetHeightPt = printableWidth / aspect;
-    } else {
-      targetHeightPt = printableHeight;
-      targetWidthPt = printableHeight * aspect;
-    }
+    targetHeightPt = printableHeight;
+    targetWidthPt = printableHeight * aspect;
   }
   
   // Center it on the sheet
@@ -233,10 +213,6 @@ export const ExportPreview: React.FC<ExportPreviewProps> = ({
                   <h4 style={{ fontSize: '14px', fontWeight: 700, margin: 0, color: '#1f1fd8' }}>
                     Wohnung {apartmentName || '[Auswahl]'}
                   </h4>
-                  <p style={{ fontSize: '9px', margin: '3px 0 0 0', color: '#4a555a' }}>
-                    Maßstab: {scaleMode === 'fixed' ? `1:${targetScale} (im Druck)` : 'Anpassung an Seitengröße'}
-                    {isScaleExceeded && <span style={{ color: 'var(--error)', marginLeft: '6px' }}>*Überschreitet Druckbereich*</span>}
-                  </p>
                 </div>
                 <div style={{ fontSize: '9px', color: '#828e94', textAlign: 'right', maxWidth: '300px', lineHeight: '1.4' }}>
                   {customText}

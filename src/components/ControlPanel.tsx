@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
-import type { Point } from '../utils/math';
+import React from 'react';
 import type { DetectedApartment } from '../utils/autoDetect';
 import { 
   Upload, FileText, ChevronLeft, ChevronRight, Check, 
-  Ruler, AlertCircle, FileDown, Layers, Compass
+  FileDown, Layers, Compass
 } from 'lucide-react';
 
 interface ControlPanelProps {
@@ -20,22 +19,12 @@ interface ControlPanelProps {
   isOcrLoading: boolean;
   autoCropPadding: number;
   setAutoCropPadding: (p: number) => void;
-  activeMode: 'crop' | 'calibrate' | 'pan';
-  setActiveMode: (mode: 'crop' | 'calibrate' | 'pan') => void;
-  calibLine: { p1: Point; p2: Point } | null;
-  calibratedDistance: number | null;
-  setCalibratedDistance: (dist: number | null) => void;
-  onCalibrate: (meters: number) => void;
   
   // Export states
   projectName: string;
   setProjectName: (name: string) => void;
   orientation: 'portrait' | 'landscape';
   setOrientation: (o: 'portrait' | 'landscape') => void;
-  scaleMode: 'fit' | 'fixed';
-  setScaleMode: (m: 'fit' | 'fixed') => void;
-  targetScale: number;
-  setTargetScale: (s: number) => void;
   customText: string;
   setCustomText: (t: string) => void;
   
@@ -58,21 +47,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   isOcrLoading,
   autoCropPadding,
   setAutoCropPadding,
-  activeMode,
-  setActiveMode,
-  calibLine,
-  calibratedDistance,
-  setCalibratedDistance,
-  onCalibrate,
   
   projectName,
   setProjectName,
   orientation,
   setOrientation,
-  scaleMode,
-  setScaleMode,
-  targetScale,
-  setTargetScale,
   customText,
   setCustomText,
   
@@ -80,16 +59,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   isExporting,
   recommendedOrientation
 }) => {
-  const [calibInput, setCalibInput] = useState<string>('');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const handleCalibSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const val = parseFloat(calibInput.replace(',', '.'));
-    if (!isNaN(val) && val > 0) {
-      onCalibrate(val);
-    }
-  };
 
   const handleNextPage = () => {
     if (currentPage < numPages) setCurrentPage(currentPage + 1);
@@ -124,8 +94,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               />
               <FileText size={32} className="dropzone-icon" />
               <div className="dropzone-text">
-                <p style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Grundriss-PDF auswählen</p>
-                <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>Oder anklicken zum Durchsuchen</p>
+                <p style={{ fontWeight: 600, color: '#fafaf7' }}>Grundriss-PDF auswählen</p>
+                <p style={{ fontSize: '0.75rem', marginTop: '0.25rem', color: 'rgba(250, 249, 245, 0.6)' }}>Oder anklicken zum Durchsuchen</p>
               </div>
             </div>
           ) : (
@@ -266,78 +236,18 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </section>
         )}
 
-        {/* 3. SCALE CALIBRATION */}
+        {/* 3. EXPORT & EXPOSE SETTINGS */}
         {fileName && (
           <section className="card">
             <h2 className="card-title">
-              <Ruler size={16} /> 3. Maßstab kalibrieren
-            </h2>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
-              Wähle den Lineal-Modus, platziere die Pins auf einer Wand mit bekannter Länge und gib das Maß ein.
-            </p>
-
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
-              <button 
-                className={`btn ${activeMode === 'calibrate' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ padding: '0.5rem' }}
-                onClick={() => setActiveMode(activeMode === 'calibrate' ? 'crop' : 'calibrate')}
-              >
-                Lineal platzieren
-              </button>
-              {calibratedDistance && (
-                <button 
-                  className="btn btn-danger"
-                  style={{ padding: '0.5rem', width: 'auto' }}
-                  onClick={() => {
-                    setCalibratedDistance(null);
-                    setCalibInput('');
-                  }}
-                  title="Kalibrierung löschen"
-                >
-                  Zurücksetzen
-                </button>
-              )}
-            </div>
-
-            {activeMode === 'calibrate' && calibLine && (
-              <form onSubmit={handleCalibSubmit} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
-                <div className="input-group" style={{ margin: 0, flex: 1 }}>
-                  <label className="input-label">Gemessene Länge (Meter)</label>
-                  <input 
-                    type="text" 
-                    placeholder="z.B. 12.10" 
-                    value={calibInput}
-                    onChange={(e) => setCalibInput(e.target.value)}
-                    className="input-field" 
-                  />
-                </div>
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto', padding: '0.625rem 1rem' }}>
-                  OK
-                </button>
-              </form>
-            )}
-
-            {calibratedDistance && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '0.5rem', borderRadius: '8px', color: 'var(--success)', fontSize: '0.75rem', marginTop: '0.5rem' }}>
-                <Check size={14} />
-                <span>Kalibriert: 1 Meter = {calibratedDistance.toFixed(1)} px</span>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* 4. EXPORT & EXPOSE SETTINGS */}
-        {fileName && (
-          <section className="card">
-            <h2 className="card-title">
-              <FileDown size={16} /> 4. Exposé & Export
+              <FileDown size={16} /> 3. Exposé & Export
             </h2>
 
             <div className="input-group">
               <label className="input-label">Projektname</label>
               <input 
                 type="text" 
-                placeholder="z.B. Gellertstrasse 11-12"
+                placeholder="z. B. Projektkürzel oder Adresse"
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
                 className="input-field"
@@ -348,66 +258,29 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               <label className="input-label">Hinweistext (Fußzeile)</label>
               <input 
                 type="text" 
-                placeholder="Maße sind Circa-Angaben."
+                placeholder="Maße sind vor Ort zu überprüfen."
                 value={customText}
                 onChange={(e) => setCustomText(e.target.value)}
                 className="input-field"
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
-              <div className="input-group" style={{ margin: 0 }}>
-                <label className="input-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>A4-Ausrichtung</span>
-                  <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 600 }}>
-                    Empf.: {recommendedOrientation === 'portrait' ? 'Hoch' : 'Quer'}
-                  </span>
-                </label>
-                <select 
-                  value={orientation} 
-                  onChange={(e) => setOrientation(e.target.value as 'portrait' | 'landscape')}
-                  className="input-field"
-                >
-                  <option value="portrait">Hochformat</option>
-                  <option value="landscape">Querformat</option>
-                </select>
-              </div>
-
-              <div className="input-group" style={{ margin: 0 }}>
-                <label className="input-label">Skalierungsmodus</label>
-                <select 
-                  value={scaleMode} 
-                  onChange={(e) => setScaleMode(e.target.value as 'fit' | 'fixed')}
-                  className="input-field"
-                >
-                  <option value="fit">Anpassen (Fit)</option>
-                  <option value="fixed">Maßstabsgetreu</option>
-                </select>
-              </div>
+            <div className="input-group" style={{ marginBottom: '0.75rem' }}>
+              <label className="input-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>A4-Ausrichtung</span>
+                <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 600 }}>
+                  Empf.: {recommendedOrientation === 'portrait' ? 'Hoch' : 'Quer'}
+                </span>
+              </label>
+              <select 
+                value={orientation} 
+                onChange={(e) => setOrientation(e.target.value as 'portrait' | 'landscape')}
+                className="input-field"
+              >
+                <option value="portrait">Hochformat</option>
+                <option value="landscape">Querformat</option>
+              </select>
             </div>
-
-            {scaleMode === 'fixed' && (
-              <div className="input-group">
-                <label className="input-label">Zielmaßstab</label>
-                <select 
-                  value={targetScale} 
-                  onChange={(e) => setTargetScale(parseInt(e.target.value))}
-                  className="input-field"
-                  disabled={!calibratedDistance}
-                >
-                  <option value="50">1 : 50</option>
-                  <option value="100">1 : 100</option>
-                  <option value="150">1 : 150</option>
-                  <option value="200">1 : 200</option>
-                </select>
-                {!calibratedDistance && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--warning)', fontSize: '0.675rem', marginTop: '0.25rem' }}>
-                    <AlertCircle size={10} />
-                    <span>Kalibrierung erforderlich für festen Maßstab</span>
-                  </div>
-                )}
-              </div>
-            )}
 
             <button 
               className="btn btn-primary" 

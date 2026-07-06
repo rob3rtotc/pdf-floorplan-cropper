@@ -6,7 +6,7 @@ import type { ParsedTextItem } from '../hooks/usePDFParser';
 // 3. Matches numbers inside parentheses (e.g. (11.01))
 const APARTMENT_PATTERNS = [
   /\bWE\s*(\d+(?:\.\d+)*)\b/i,
-  /\b(\d+\.\d+)\b/,
+  /\b(\d+\.(?:0[1-9]|1[0-9]))\b/,
   /\((\d+(?:\.\d+)*)\)/
 ];
 
@@ -72,6 +72,12 @@ export function detectApartments(
         
         // Ignore typical wall thicknesses and dimensions (e.g. 24, 10, 15, 30, 36)
         if (/^(24|10|15|30|36|40|50|100|1:100|1:50)$/.test(key)) {
+          continue;
+        }
+        
+        // Ignore typical window sizes and outer wall dimension chains (e.g. 1.02, 2.04, 1.82, 2.80)
+        // that frequently appear in floor plans but are not apartment numbers
+        if (/^(1[\.,]0[1-3]|1[\.,]82|2[\.,]0[45]|0[\.,]77|0[\.,]88|1[\.,]26|1[\.,]47|2[\.,]49|2[\.,]80|1[\.,]72|2[\.,]52|4[\.,]20|4[\.,]35|3[\.,]22|3[\.,]96|4[\.,]36|1[\.,]67|2[\.,]46|4[\.,]25|10[\.,]00)$/.test(key)) {
           continue;
         }
 

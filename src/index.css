@@ -255,15 +255,16 @@ body, html, #root {
 }
 
 .sidebar .input-field {
-  background: #ffffff; /* Crisp white background for maximum legibility */
+  background-color: #ffffff !important; /* Crisp white background for maximum legibility */
   border: 1px solid rgba(250, 249, 245, 0.15);
   border-radius: 6px;
   padding: 0.625rem 0.875rem;
   font-size: 0.875rem;
-  color: #0f1a1f; /* Orkney Ink Dark slate text color */
+  color: #0f1a1f !important; /* Orkney Ink Dark slate text color */
   transition: all 0.15s ease-in-out;
   width: 100%;
   font-weight: 500;
+  color-scheme: light !important; /* Force light mode inside browser inputs */
 }
 
 .sidebar .input-field:focus {
@@ -516,9 +517,10 @@ body, html, #root {
 }
 
 .modal-content .input-field {
-  background: white;
+  background-color: #ffffff !important;
   border: 1px solid var(--border-light);
-  color: var(--text-primary);
+  color: #0f1a1f !important;
+  color-scheme: light !important;
 }
 
 .modal-content .input-field:focus {

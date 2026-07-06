@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { type Point, getClosestPointOnSegment } from '../utils/math';
-import { ZoomIn, ZoomOut, Maximize, Scissors, Ruler, Hand } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize, Scissors, Hand } from 'lucide-react';
 
 interface DocumentViewerProps {
   pdfDocument: any;
@@ -9,12 +9,8 @@ interface DocumentViewerProps {
   pageHeight: number;
   polygon: Point[];
   setPolygon: (points: Point[]) => void;
-  calibLine: { p1: Point; p2: Point } | null;
-  setCalibLine: (line: { p1: Point; p2: Point } | null) => void;
-  activeMode: 'crop' | 'calibrate' | 'pan';
-  setActiveMode: (mode: 'crop' | 'calibrate' | 'pan') => void;
-  calibratedDistance: number | null;
-  setCalibratedDistance: (dist: number | null) => void;
+  activeMode: 'crop' | 'pan';
+  setActiveMode: (mode: 'crop' | 'pan') => void;
 }
 
 export const DocumentViewer: React.FC<DocumentViewerProps> = ({
@@ -24,12 +20,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   pageHeight,
   polygon,
   setPolygon,
-  calibLine,
-  setCalibLine,
   activeMode,
-  setActiveMode,
-  calibratedDistance,
-  setCalibratedDistance
+  setActiveMode
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -43,7 +35,6 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
   // Draggable state
   const [draggedVertexIndex, setDraggedVertexIndex] = useState<number | null>(null);
-  const [draggedCalibPoint, setDraggedCalibPoint] = useState<'p1' | 'p2' | null>(null);
   const [isDraggingPolygon, setIsDraggingPolygon] = useState<boolean>(false);
   const [dragPolygonStart, setDragPolygonStart] = useState<Point>({ x: 0, y: 0 });
 
@@ -215,17 +206,6 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       return;
     }
 
-    // 2. Handle calibration pin dragging
-    if (draggedCalibPoint !== null && calibLine && activeMode === 'calibrate') {
-      const nextLine = { ...calibLine };
-      nextLine[draggedCalibPoint] = {
-        x: Math.max(0, Math.min(pageWidth, mouseDoc.x)),
-        y: Math.max(0, Math.min(pageHeight, mouseDoc.y))
-      };
-      setCalibLine(nextLine);
-      return;
-    }
-
     // 3. Handle edge hover check (only in crop mode and when not dragging)
     if (activeMode === 'crop' && draggedVertexIndex === null) {
       let closestEdge: { point: Point; index: number; dist: number } | null = null;
@@ -254,7 +234,6 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const handleMouseUp = () => {
     setIsPanning(false);
     setDraggedVertexIndex(null);
-    setDraggedCalibPoint(null);
     setIsDraggingPolygon(false);
   };
 
@@ -293,17 +272,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             ${polygon.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ')} Z`;
   };
 
-  // Calibrator click to place points if not already existing
-  const handleSvgBackgroundClick = (e: React.MouseEvent) => {
-    if (activeMode === 'calibrate') {
-      const pt = screenToDocCoords(e.clientX, e.clientY);
-      if (!calibLine) {
-        // Place first point
-        setCalibLine({ p1: pt, p2: { x: pt.x + 80, y: pt.y } });
-        setCalibratedDistance(null);
-      }
-    }
-  };
+
 
   return (
     <div 
@@ -346,7 +315,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             pointerEvents: 'auto',
             cursor: activeMode === 'pan' ? (isPanning ? 'grabbing' : 'grab') : 'crosshair'
           }}
-          onClick={handleSvgBackgroundClick}
+          onClick={handleSvgClick}
         >
           {/* 1. MASK OVERLAY (dims everything outside crop area) */}
           {activeMode === 'crop' && polygon.length >= 3 && (
@@ -368,6 +337,10 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               strokeDasharray={4 / zoom}
               style={{ cursor: 'move', pointerEvents: 'auto' }}
               onPointerDown={handlePolygonDragStart}
+              onPointerUp={(e) => {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+                setIsDraggingPolygon(false);
+              }}
             />
           )}
 
@@ -405,84 +378,17 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               style={{ cursor: 'move' }}
               onPointerDown={(e) => {
                 e.stopPropagation();
+                e.currentTarget.setPointerCapture(e.pointerId);
                 setDraggedVertexIndex(idx);
+              }}
+              onPointerUp={(e) => {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+                setDraggedVertexIndex(null);
               }}
               onDoubleClick={(e) => handleVertexDelete(idx, e)}
               onContextMenu={(e) => handleVertexDelete(idx, e)}
             />
           ))}
-
-          {/* 5. SCALE CALIBRATION LINE */}
-          {activeMode === 'calibrate' && calibLine && (
-            <g>
-              {/* Connecting line */}
-              <line
-                x1={calibLine.p1.x}
-                y1={calibLine.p1.y}
-                x2={calibLine.p2.x}
-                y2={calibLine.p2.y}
-                stroke="#10b981"
-                strokeWidth={3 / zoom}
-              />
-              
-              {/* Pin 1 */}
-              <circle
-                cx={calibLine.p1.x}
-                cy={calibLine.p1.y}
-                r={9 / zoom}
-                fill="#10b981"
-                stroke="#ffffff"
-                strokeWidth={2 / zoom}
-                style={{ cursor: 'move' }}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  setDraggedCalibPoint('p1');
-                }}
-              />
-              
-              {/* Pin 2 */}
-              <circle
-                cx={calibLine.p2.x}
-                cy={calibLine.p2.y}
-                r={9 / zoom}
-                fill="#10b981"
-                stroke="#ffffff"
-                strokeWidth={2 / zoom}
-                style={{ cursor: 'move' }}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  setDraggedCalibPoint('p2');
-                }}
-              />
-
-              {/* Text label with calibration info */}
-              <foreignObject
-                x={Math.min(calibLine.p1.x, calibLine.p2.x)}
-                y={Math.min(calibLine.p1.y, calibLine.p2.y) - 40 / zoom}
-                width={200 / zoom}
-                height={35 / zoom}
-                style={{ overflow: 'visible', pointerEvents: 'none' }}
-              >
-                <div 
-                  style={{
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--success)',
-                    borderRadius: '4px',
-                    padding: '2px 6px',
-                    fontSize: `${Math.max(10, 11 / zoom)}px`,
-                    color: 'white',
-                    display: 'inline-block',
-                    boxShadow: '0 4px 6px rgba(0,0,0,0.2)',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  {calibratedDistance 
-                    ? `Kalibriert: ${calibratedDistance.toFixed(2)}m` 
-                    : 'Ziehe Pins an Wandenden'}
-                </div>
-              </foreignObject>
-            </g>
-          )}
         </svg>
       </div>
 
@@ -506,13 +412,6 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           title="Zuschnitt bearbeiten (Polygon)"
         >
           <Scissors size={16} />
-        </button>
-        <button 
-          className={`toolbar-btn ${activeMode === 'calibrate' ? 'active' : ''}`}
-          onClick={() => setActiveMode('calibrate')}
-          title="Maßstab kalibrieren (Lineal)"
-        >
-          <Ruler size={16} />
         </button>
         
         <div className="toolbar-separator" />
