@@ -39,6 +39,7 @@ interface ControlPanelProps {
   
   onExport: () => void;
   isExporting: boolean;
+  recommendedOrientation: 'portrait' | 'landscape';
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -72,7 +73,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   setCustomText,
   
   onExport,
-  isExporting
+  isExporting,
+  recommendedOrientation
 }) => {
   const [calibInput, setCalibInput] = useState<string>('');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -335,7 +337,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
               <div className="input-group" style={{ margin: 0 }}>
-                <label className="input-label">A4-Ausrichtung</label>
+                <label className="input-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>A4-Ausrichtung</span>
+                  <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 600 }}>
+                    Empf.: {recommendedOrientation === 'portrait' ? 'Hoch' : 'Quer'}
+                  </span>
+                </label>
                 <select 
                   value={orientation} 
                   onChange={(e) => setOrientation(e.target.value as 'portrait' | 'landscape')}

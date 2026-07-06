@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePDFParser, type PDFPageData } from './hooks/usePDFParser';
 import { detectApartments, getApartmentBoundingBox, bboxToPolygon, type DetectedApartment } from './utils/autoDetect';
-import { type Point, getDistance } from './utils/math';
+import { type Point, type BoundingBox, getDistance } from './utils/math';
 import { renderCroppedArea, exportToA4Pdf, type ExportOptions } from './utils/exportHelper';
 import { recognizeApartmentNumber } from './utils/ocr';
 import { DocumentViewer } from './components/DocumentViewer';
@@ -46,7 +46,7 @@ function App() {
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
   const [scaleMode, setScaleMode] = useState<'fit' | 'fixed'>('fit');
   const [targetScale, setTargetScale] = useState<number>(100);
-  const [customText, setCustomText] = useState<string>('Maße sind Circa-Angaben und ohne Gewähr.');
+  const [customText, setCustomText] = useState<string>('Alle Angaben ohne Gewähr. Maße sind vor Ort zu überprüfen.');
 
   // Modals & UI feedback
   const [isDriveModalOpen, setIsDriveModalOpen] = useState<boolean>(false);
@@ -98,6 +98,27 @@ function App() {
     }
   };
 
+  // Helper to update crop polygon and automatically recommend/set print orientation
+  const applyPolygonAndAutoOrientation = useCallback((poly: Point[]) => {
+    setPolygon(poly);
+    
+    if (poly.length < 3) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    poly.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    });
+    
+    const w = maxX - minX;
+    const h = maxY - minY;
+    setOrientation(w >= h ? 'landscape' : 'portrait');
+  }, []);
+
   // Fetch page details and run detection when page changes
   useEffect(() => {
     if (!pdfDocument) {
@@ -115,21 +136,38 @@ function App() {
         const apts = detectApartments(data.textItems);
         setDetectedApartments(apts);
 
-        // Define default crop rectangle: 60% of width/height centered
-        const w = data.width;
-        const h = data.height;
-        const defaultPoly = [
-          { x: w * 0.2, y: h * 0.2 },
-          { x: w * 0.8, y: h * 0.2 },
-          { x: w * 0.8, y: h * 0.8 },
-          { x: w * 0.2, y: h * 0.8 }
-        ];
-        setPolygon(defaultPoly);
+        // Feature request: if apartments are detected, immediately select the first one and auto-crop it!
+        if (apts.length > 0) {
+          const aptName = apts[0].name;
+          setSelectedApartment(aptName);
+          const bbox = getApartmentBoundingBox(data.textItems, aptName, 50);
+          if (bbox) {
+            const poly = bboxToPolygon(bbox);
+            const height = data.height;
+            const flippedPoly = poly.map(pt => ({
+              x: pt.x,
+              y: height - pt.y
+            }));
+            applyPolygonAndAutoOrientation(flippedPoly);
+            showToast(`Wohnung WE ${aptName} automatisch erkannt und markiert.`, 'success');
+          }
+        } else {
+          // Define default crop rectangle: 60% of width/height centered
+          const w = data.width;
+          const h = data.height;
+          const defaultPoly = [
+            { x: w * 0.2, y: h * 0.2 },
+            { x: w * 0.8, y: h * 0.2 },
+            { x: w * 0.8, y: h * 0.8 },
+            { x: w * 0.2, y: h * 0.8 }
+          ];
+          applyPolygonAndAutoOrientation(defaultPoly);
+        }
       }
     };
 
     fetchPageInfo();
-  }, [pdfDocument, currentPage, getPageData]);
+  }, [pdfDocument, currentPage, getPageData, applyPolygonAndAutoOrientation]);
 
   // Handle selection of a detected apartment unit or manual text typing
   const handleSelectApartment = (aptName: string) => {
@@ -151,7 +189,7 @@ function App() {
           y: height - pt.y
         }));
 
-        setPolygon(flippedPoly);
+        applyPolygonAndAutoOrientation(flippedPoly);
         showToast(`Zuschnitt für WE ${aptName} automatisch gesetzt.`, 'success');
       }
     }
@@ -266,6 +304,40 @@ function App() {
     }
   };
 
+  // Dynamically calculate recommended orientation based on selection aspect ratio
+  const getRecommendedOrientation = (): 'portrait' | 'landscape' => {
+    if (polygon.length < 3) return 'landscape';
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    polygon.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    });
+    return (maxX - minX) >= (maxY - minY) ? 'landscape' : 'portrait';
+  };
+  const recommendedOrientation = getRecommendedOrientation();
+
+  // Bounding box for export preview WYSIWYG placement
+  const getPolygonBbox = (): BoundingBox | null => {
+    if (polygon.length < 3) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    polygon.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    });
+    return { minX, minY, maxX, maxY };
+  };
+  const polygonBbox = getPolygonBbox();
+
   return (
     <div className="app-container">
       {/* Side Control Panel */}
@@ -281,6 +353,7 @@ function App() {
         onSelectApartment={handleSelectApartment}
         onScanApartment={handleScanApartment}
         isOcrLoading={isOcrLoading}
+        recommendedOrientation={recommendedOrientation}
         activeMode={activeMode}
         setActiveMode={setActiveMode}
         calibLine={calibLine}
@@ -387,11 +460,13 @@ function App() {
         onClose={() => setIsPreviewOpen(false)}
         onConfirm={handleConfirmPdfExport}
         croppedCanvas={croppedCanvas}
+        polygonBbox={polygonBbox}
         apartmentName={selectedApartment || ''}
         projectName={projectName}
         orientation={orientation}
         scaleMode={scaleMode}
         targetScale={targetScale}
+        pdfPointsPerMeter={calibratedDistance}
         customText={customText}
       />
     </div>
