@@ -54,6 +54,7 @@ function App() {
   const [croppedCanvas, setCroppedCanvas] = useState<HTMLCanvasElement | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [isOcrLoading, setIsOcrLoading] = useState<boolean>(false);
+  const [autoCropPadding, setAutoCropPadding] = useState<number>(85); // Default to 85 pt (~3cm) to include dimension chains
   
   // Toast notifications
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -132,25 +133,13 @@ function App() {
       if (data) {
         setPageData(data);
         
-        // Auto-detect apartment groups on page
-        const apts = detectApartments(data.textItems);
+        // Auto-detect apartment groups on page (passing dimensions to filter out legend)
+        const apts = detectApartments(data.textItems, data.width, data.height);
         setDetectedApartments(apts);
 
-        // Feature request: if apartments are detected, immediately select the first one and auto-crop it!
         if (apts.length > 0) {
-          const aptName = apts[0].name;
-          setSelectedApartment(aptName);
-          const bbox = getApartmentBoundingBox(data.textItems, aptName, 50);
-          if (bbox) {
-            const poly = bboxToPolygon(bbox);
-            const height = data.height;
-            const flippedPoly = poly.map(pt => ({
-              x: pt.x,
-              y: height - pt.y
-            }));
-            applyPolygonAndAutoOrientation(flippedPoly);
-            showToast(`Wohnung WE ${aptName} automatisch erkannt und markiert.`, 'success');
-          }
+          setSelectedApartment(apts[0].name);
+          // Bounding box calculation will be handled reactively by the second useEffect
         } else {
           // Define default crop rectangle: 60% of width/height centered
           const w = data.width;
@@ -169,30 +158,35 @@ function App() {
     fetchPageInfo();
   }, [pdfDocument, currentPage, getPageData, applyPolygonAndAutoOrientation]);
 
+  // Reactively compute the crop box when selectedApartment or padding changes
+  useEffect(() => {
+    if (selectedApartment && pageData) {
+      const exists = detectedApartments.some(apt => apt.name.toLowerCase() === selectedApartment.toLowerCase().trim());
+      if (exists) {
+        const bbox = getApartmentBoundingBox(
+          pageData.textItems,
+          selectedApartment,
+          autoCropPadding,
+          pageData.width,
+          pageData.height
+        );
+        if (bbox) {
+          const poly = bboxToPolygon(bbox);
+          const height = pageData.height;
+          const flippedPoly = poly.map(pt => ({
+            x: pt.x,
+            y: height - pt.y
+          }));
+          applyPolygonAndAutoOrientation(flippedPoly);
+        }
+      }
+    }
+  }, [selectedApartment, autoCropPadding, pageData, detectedApartments, applyPolygonAndAutoOrientation]);
+
   // Handle selection of a detected apartment unit or manual text typing
   const handleSelectApartment = (aptName: string) => {
     setSelectedApartment(aptName);
-    
-    // Only auto-crop if the apartment exists in our parsed list (to avoid jumping while typing custom names)
-    const exists = detectedApartments.some(apt => apt.name.toLowerCase() === aptName.toLowerCase().trim());
-    if (exists && pageData) {
-      const bbox = getApartmentBoundingBox(pageData.textItems, aptName, 50);
-      if (bbox) {
-        const poly = bboxToPolygon(bbox);
-        
-        // Since our polygon coordinate system uses top-left origin (viewport space)
-        // and pdf.js bounding boxes are in bottom-left origin (PDF space),
-        // we need to flip the y-coordinates to map properly onto our viewer!
-        const height = pageData.height;
-        const flippedPoly = poly.map(pt => ({
-          x: pt.x,
-          y: height - pt.y
-        }));
-
-        applyPolygonAndAutoOrientation(flippedPoly);
-        showToast(`Zuschnitt für WE ${aptName} automatisch gesetzt.`, 'success');
-      }
-    }
+    // Note: crop calculations are handled reactively by the useEffect hook
   };
 
   // Run OCR on the selected crop area to recognize apartment number
@@ -353,6 +347,8 @@ function App() {
         onSelectApartment={handleSelectApartment}
         onScanApartment={handleScanApartment}
         isOcrLoading={isOcrLoading}
+        autoCropPadding={autoCropPadding}
+        setAutoCropPadding={setAutoCropPadding}
         recommendedOrientation={recommendedOrientation}
         activeMode={activeMode}
         setActiveMode={setActiveMode}

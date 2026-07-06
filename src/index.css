@@ -255,19 +255,21 @@ body, html, #root {
 }
 
 .sidebar .input-field {
-  background: #192329; /* Darker ink background */
-  border: 1px solid var(--border-dark);
+  background: #ffffff; /* Crisp white background for maximum legibility */
+  border: 1px solid rgba(250, 249, 245, 0.15);
   border-radius: 6px;
-  padding: 0.5rem 0.75rem;
+  padding: 0.625rem 0.875rem;
   font-size: 0.875rem;
-  color: #fafaf7;
-  transition: border-color 0.15s ease;
+  color: #0f1a1f; /* Orkney Ink Dark slate text color */
+  transition: all 0.15s ease-in-out;
   width: 100%;
+  font-weight: 500;
 }
 
 .sidebar .input-field:focus {
   outline: none;
-  border-color: var(--accent); /* Glow is soft pink */
+  border-color: var(--accent); /* Pink focus border */
+  box-shadow: 0 0 0 2px rgba(244, 165, 192, 0.35);
 }
 
 /* File Upload dropzone */

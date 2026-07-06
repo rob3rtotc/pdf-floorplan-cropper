@@ -44,6 +44,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   // Draggable state
   const [draggedVertexIndex, setDraggedVertexIndex] = useState<number | null>(null);
   const [draggedCalibPoint, setDraggedCalibPoint] = useState<'p1' | 'p2' | null>(null);
+  const [isDraggingPolygon, setIsDraggingPolygon] = useState<boolean>(false);
+  const [dragPolygonStart, setDragPolygonStart] = useState<Point>({ x: 0, y: 0 });
 
   // Edge hover (subdivision)
   const [hoveredEdgePoint, setHoveredEdgePoint] = useState<{ point: Point; index: number } | null>(null);
@@ -168,6 +170,14 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     }
   };
 
+  const handlePolygonDragStart = (e: React.PointerEvent) => {
+    if (activeMode !== 'crop') return;
+    e.stopPropagation();
+    e.preventDefault();
+    setIsDraggingPolygon(true);
+    setDragPolygonStart(screenToDocCoords(e.clientX, e.clientY));
+  };
+
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isPanning) {
       setPan({
@@ -178,6 +188,21 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     }
 
     const mouseDoc = screenToDocCoords(e.clientX, e.clientY);
+
+    // Handle whole polygon dragging
+    if (isDraggingPolygon && activeMode === 'crop') {
+      const dx = mouseDoc.x - dragPolygonStart.x;
+      const dy = mouseDoc.y - dragPolygonStart.y;
+      
+      const nextPoints = polygon.map(p => ({
+        x: Math.max(0, Math.min(pageWidth, p.x + dx)),
+        y: Math.max(0, Math.min(pageHeight, p.y + dy))
+      }));
+      
+      setPolygon(nextPoints);
+      setDragPolygonStart(mouseDoc);
+      return;
+    }
 
     // 1. Handle vertex dragging
     if (draggedVertexIndex !== null && activeMode === 'crop') {
@@ -230,6 +255,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     setIsPanning(false);
     setDraggedVertexIndex(null);
     setDraggedCalibPoint(null);
+    setIsDraggingPolygon(false);
   };
 
   // Click on SVG edge to insert a vertex
@@ -336,10 +362,12 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           {activeMode === 'crop' && (
             <polygon
               points={getSvgPolygonPoints()}
-              fill="rgba(99, 102, 241, 0.05)"
-              stroke="#6366f1"
+              fill="rgba(31, 31, 216, 0.04)"
+              stroke="#1f1fd8"
               strokeWidth={2 / zoom}
               strokeDasharray={4 / zoom}
+              style={{ cursor: 'move', pointerEvents: 'auto' }}
+              onPointerDown={handlePolygonDragStart}
             />
           )}
 

@@ -11,35 +11,66 @@ const APARTMENT_PATTERNS = [
 ];
 
 export interface DetectedApartment {
-  name: string;      // Normalized identifier, e.g. "11.01" or "WE 1"
+  name: string;      // Normalized identifier, e.g. "1" or "11.01"
   originalText: string;
   count: number;     // Number of occurrences
 }
 
 /**
- * Parses all text items on a page and returns a list of detected apartment numbers,
- * sorted by frequency of occurrence.
+ * Helper to check if a text item is located within the building plan drawing area
+ * (excluding the legend block on the right and the title block at the bottom).
  */
-export function detectApartments(textItems: ParsedTextItem[]): DetectedApartment[] {
+function isWithinBuildingPlan(item: ParsedTextItem, pageWidth: number, pageHeight: number): boolean {
+  if (pageWidth <= 0 || pageHeight <= 0) return true;
+  
+  // 1. Exclude the legend on the right (typical x > 75% of page width)
+  if (item.x > pageWidth * 0.75) return false;
+  
+  // 2. Exclude the title block at the bottom (typical PDF y < 12% of page height)
+  if (item.y < pageHeight * 0.12) return false;
+  
+  return true;
+}
+
+/**
+ * Normalizes apartment keys by stripping "WE" prefixes and trimming.
+ * For example: "WE 1" -> "1", "WE1" -> "1", "11.01" -> "11.01".
+ */
+function normalizeApartmentKey(key: string): string {
+  return key.toUpperCase().replace(/^WE\s*/, '').trim();
+}
+
+/**
+ * Parses all text items on a page and returns a list of detected apartment numbers,
+ * sorted by frequency of occurrence. Excludes legend and title block texts.
+ */
+export function detectApartments(
+  textItems: ParsedTextItem[],
+  pageWidth: number = 0,
+  pageHeight: number = 0
+): DetectedApartment[] {
   const counts: { [key: string]: { original: string; count: number } } = {};
 
   textItems.forEach(item => {
+    // Exclude legend & title block texts
+    if (!isWithinBuildingPlan(item, pageWidth, pageHeight)) return;
+
     const text = item.str.trim();
     if (!text) return;
 
     for (const pattern of APARTMENT_PATTERNS) {
       const match = text.match(pattern);
       if (match) {
-        // Use the captured group (e.g. "11.01" from "WE 11.01") as the normalized key
-        const key = match[1];
+        const rawKey = match[1];
+        const key = normalizeApartmentKey(rawKey);
         
         // Ignore single digits unless prefixed by "WE" or inside parens,
-        // to avoid matching random scale numbers, wall measurements (e.g. 24, 10, 4.44)
+        // to avoid matching random scale numbers, wall measurements
         if (key.length <= 1 && !text.toUpperCase().includes('WE') && !text.includes('(')) {
           continue;
         }
         
-        // Ignore typical wall thicknesses and dimensions (e.g. 24, 10, 15, 36.5, 1:100)
+        // Ignore typical wall thicknesses and dimensions (e.g. 24, 10, 15, 30, 36)
         if (/^(24|10|15|30|36|40|50|100|1:100|1:50)$/.test(key)) {
           continue;
         }
@@ -63,7 +94,6 @@ export function detectApartments(textItems: ParsedTextItem[]): DetectedApartment
       originalText: counts[key].original,
       count: counts[key].count
     }))
-    // Filter out items that only appear once unless they match a standard pattern
     .filter(apt => apt.count >= 1)
     .sort((a, b) => b.count - a.count);
 }
@@ -77,12 +107,14 @@ export interface BoundingBox {
 
 /**
  * Calculates the bounding box in PDF points around all text items
- * belonging to a specific apartment.
+ * belonging to a specific apartment. Excludes items outside the building drawing area.
  */
 export function getApartmentBoundingBox(
   textItems: ParsedTextItem[],
   apartmentName: string,
-  padding: number = 60 // PDF points (approx 2cm)
+  padding: number = 60, // PDF points
+  pageWidth: number = 0,
+  pageHeight: number = 0
 ): BoundingBox | null {
   let minX = Infinity;
   let minY = Infinity;
@@ -90,12 +122,16 @@ export function getApartmentBoundingBox(
   let maxY = -Infinity;
   let found = false;
 
-  const normalizedTarget = apartmentName.toLowerCase().trim();
+  const normalizedTarget = normalizeApartmentKey(apartmentName);
 
   textItems.forEach(item => {
-    const text = item.str.toLowerCase().trim();
-    // Check if the text contains the apartment name
-    if (text.includes(normalizedTarget)) {
+    // Exclude legend & title block texts when computing building coordinates
+    if (!isWithinBuildingPlan(item, pageWidth, pageHeight)) return;
+
+    const text = normalizeApartmentKey(item.str);
+    
+    // Check if the text matches the apartment key (e.g. "1" matches "1" or "WE1")
+    if (text === normalizedTarget || item.str.toLowerCase().includes(apartmentName.toLowerCase())) {
       found = true;
       const x = item.x;
       const y = item.y;

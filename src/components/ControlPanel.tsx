@@ -18,6 +18,8 @@ interface ControlPanelProps {
   onSelectApartment: (aptName: string) => void;
   onScanApartment: () => void;
   isOcrLoading: boolean;
+  autoCropPadding: number;
+  setAutoCropPadding: (p: number) => void;
   activeMode: 'crop' | 'calibrate' | 'pan';
   setActiveMode: (mode: 'crop' | 'calibrate' | 'pan') => void;
   calibLine: { p1: Point; p2: Point } | null;
@@ -54,6 +56,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onSelectApartment,
   onScanApartment,
   isOcrLoading,
+  autoCropPadding,
+  setAutoCropPadding,
   activeMode,
   setActiveMode,
   calibLine,
@@ -197,6 +201,22 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   value={selectedApartment || ''}
                   onChange={(e) => onSelectApartment(e.target.value)}
                   className="input-field" 
+                />
+              </div>
+
+              <div className="input-group" style={{ margin: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="input-label">Zuschnitts-Rand ({autoCropPadding} px)</label>
+                  <span style={{ fontSize: '9px', color: 'rgba(250, 249, 245, 0.4)', fontWeight: 500 }}>Maßketten einblenden</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="20" 
+                  max="140" 
+                  step="5"
+                  value={autoCropPadding}
+                  onChange={(e) => setAutoCropPadding(parseInt(e.target.value))}
+                  style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer', marginTop: '0.25rem' }}
                 />
               </div>
 
