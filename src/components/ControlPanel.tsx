@@ -89,7 +89,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 type="file" 
                 ref={fileInputRef} 
                 onChange={onFileUpload} 
-                accept=".pdf" 
+                accept=".pdf,.png,.jpg,.jpeg,.webp" 
                 style={{ display: 'none' }}
               />
               <FileText size={32} className="dropzone-icon" />
@@ -111,7 +111,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   type="file" 
                   ref={fileInputRef} 
                   onChange={onFileUpload} 
-                  accept=".pdf" 
+                  accept=".pdf,.png,.jpg,.jpeg,.webp" 
                   style={{ display: 'none' }}
                 />
                 Andere Datei wählen

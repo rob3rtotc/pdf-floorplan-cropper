@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { usePDFParser, type PDFPageData } from './hooks/usePDFParser';
 import { detectApartments, getApartmentBoundingBox, bboxToPolygon, type DetectedApartment } from './utils/autoDetect';
 import { type Point, type BoundingBox } from './utils/math';
-import { renderCroppedArea, exportToA4Pdf, type ExportOptions } from './utils/exportHelper';
+import { renderCroppedArea, renderCroppedImageArea, exportToA4Pdf, type ExportOptions } from './utils/exportHelper';
 import { recognizeApartmentNumber } from './utils/ocr';
 import { DocumentViewer } from './components/DocumentViewer';
 import { ControlPanel } from './components/ControlPanel';
@@ -23,6 +23,7 @@ function App() {
 
   // App file state
   const [fileName, setFileName] = useState<string | null>(null);
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageData, setPageData] = useState<PDFPageData | null>(null);
 
@@ -70,7 +71,60 @@ function App() {
       .trim();
   };
 
-  // Handle file uploads
+  // Load an image base plan (PNG/JPG)
+  const loadImagePlan = (fileOrUrl: File | string) => {
+    return new Promise<void>((resolve, reject) => {
+      setPageData(null);
+      clearPDF();
+      setImageSrc(null);
+
+      const img = new Image();
+      img.onload = () => {
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        
+        setPageData({
+          pageIndex: 1,
+          width: w,
+          height: h,
+          textItems: []
+        });
+        setCurrentPage(1);
+        setSelectedApartment(null);
+        setDetectedApartments([]);
+        setActiveMode('crop');
+        resolve();
+      };
+      
+      img.onerror = (e) => {
+        showToast('Bild konnte nicht geladen werden.', 'error');
+        reject(e);
+      };
+      
+      if (typeof fileOrUrl === 'string') {
+        setImageSrc(fileOrUrl);
+        img.src = fileOrUrl;
+      } else {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const src = e.target?.result as string;
+          setImageSrc(src);
+          img.src = src;
+        };
+        reader.readAsDataURL(fileOrUrl);
+      }
+    });
+  };
+
+  // Clear all states
+  const handleClearAll = () => {
+    clearPDF();
+    setImageSrc(null);
+    setPageData(null);
+    setFileName(null);
+  };
+
+  // Handle file uploads (supporting PDFs and images)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -80,16 +134,24 @@ function App() {
     setCurrentPage(1);
     setSelectedApartment(null);
     
-    const doc = await loadPDF(file);
-    if (doc) {
-      showToast('PDF erfolgreich geladen!', 'success');
-      setActiveMode('crop');
+    if (file.type === 'application/pdf') {
+      setImageSrc(null);
+      const doc = await loadPDF(file);
+      if (doc) {
+        showToast('PDF erfolgreich geladen!', 'success');
+        setActiveMode('crop');
+      }
+    } else if (file.type.startsWith('image/')) {
+      await loadImagePlan(file);
+      showToast('Bild erfolgreich geladen!', 'success');
+    } else {
+      showToast('Dateiformat wird nicht unterstützt. Bitte PDF oder Bild (PNG/JPG) wählen.', 'error');
     }
   };
 
   // Handle URL uploads (e.g. from Google Drive proxy or web link)
   const handleLoadUrl = async (url: string) => {
-    let name = 'Web-Dokument.pdf';
+    let name = 'Web-Dokument';
     if (url.includes('docs.google.com')) {
       name = 'Google Drive Plan';
     } else {
@@ -105,10 +167,23 @@ function App() {
     setCurrentPage(1);
     setSelectedApartment(null);
 
-    const doc = await loadPDF(url);
-    if (doc) {
-      showToast('PDF erfolgreich aus der Cloud geladen!', 'success');
-      setActiveMode('crop');
+    const lowercaseUrl = url.toLowerCase();
+    if (
+      lowercaseUrl.endsWith('.png') || 
+      lowercaseUrl.endsWith('.jpg') || 
+      lowercaseUrl.endsWith('.jpeg') || 
+      lowercaseUrl.endsWith('.webp') ||
+      url.includes('image')
+    ) {
+      await loadImagePlan(url);
+      showToast('Bild erfolgreich geladen!', 'success');
+    } else {
+      setImageSrc(null);
+      const doc = await loadPDF(url);
+      if (doc) {
+        showToast('PDF erfolgreich aus der Cloud geladen!', 'success');
+        setActiveMode('crop');
+      }
     }
   };
 
@@ -214,15 +289,20 @@ function App() {
 
   // Run OCR on the selected crop area to recognize apartment number
   const handleScanApartment = async () => {
-    if (!pdfDocument || !pageData || polygon.length < 3) return;
+    if ((!pdfDocument && !imageSrc) || !pageData || polygon.length < 3) return;
 
     try {
       setIsOcrLoading(true);
       showToast('Analysiere Ausschnitt auf Text...', 'info');
       
-      const page = await pdfDocument.getPage(currentPage);
-      // Render at 2x scale for decent OCR quality without being too heavy
-      const canvas = await renderCroppedArea(page, polygon, 2.0);
+      let canvas: HTMLCanvasElement;
+      if (imageSrc) {
+        canvas = await renderCroppedImageArea(imageSrc, polygon);
+      } else {
+        const page = await pdfDocument.getPage(currentPage);
+        // Render at 2x scale for decent OCR quality without being too heavy
+        canvas = await renderCroppedArea(page, polygon, 2.0);
+      }
       
       const detected = await recognizeApartmentNumber(canvas);
       if (detected) {
@@ -241,14 +321,19 @@ function App() {
 
   // Trigger high-res rendering and open A4 preview
   const handleExportClick = async () => {
-    if (!pdfDocument || !pageData || polygon.length < 3) return;
+    if ((!pdfDocument && !imageSrc) || !pageData || polygon.length < 3) return;
 
     try {
       setIsExporting(true);
-      const page = await pdfDocument.getPage(currentPage);
       
-      // Render at 3x scale for crisp printing
-      const canvas = await renderCroppedArea(page, polygon, 3.0);
+      let canvas: HTMLCanvasElement;
+      if (imageSrc) {
+        canvas = await renderCroppedImageArea(imageSrc, polygon);
+      } else {
+        const page = await pdfDocument.getPage(currentPage);
+        // Render at 3x scale for crisp printing
+        canvas = await renderCroppedArea(page, polygon, 3.0);
+      }
       setCroppedCanvas(canvas);
       setIsPreviewOpen(true);
     } catch (err) {
@@ -347,7 +432,7 @@ function App() {
       {/* Side Control Panel */}
       <ControlPanel
         fileName={fileName}
-        numPages={numPages}
+        numPages={imageSrc ? 1 : numPages}
         currentPage={currentPage}
         setCurrentPage={setCurrentPage}
         onFileUpload={handleFileUpload}
@@ -375,27 +460,27 @@ function App() {
         {pdfLoading && (
           <div className="loading-screen">
             <div className="spinner" />
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>PDF wird verarbeitet...</p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Dokument wird verarbeitet...</p>
           </div>
         )}
 
         {pdfError && (
           <div className="loading-screen" style={{ color: 'var(--error)', gap: '0.5rem' }}>
             <AlertTriangle size={32} />
-            <p style={{ fontWeight: 600 }}>Fehler beim Laden der PDF</p>
+            <p style={{ fontWeight: 600 }}>Fehler beim Laden des Dokuments</p>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{pdfError}</p>
-            <button className="btn btn-secondary" style={{ width: 'auto', marginTop: '1rem' }} onClick={clearPDF}>
+            <button className="btn btn-secondary" style={{ width: 'auto', marginTop: '1rem' }} onClick={handleClearAll}>
               Zurück
             </button>
           </div>
         )}
 
-        {!pdfDocument && !pdfLoading && !pdfError ? (
+        {!pdfDocument && !imageSrc && !pdfLoading && !pdfError ? (
           <div className="loading-screen">
             <Layers size={48} style={{ color: 'var(--primary)', marginBottom: '0.5rem', opacity: 0.8 }} />
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>PlanCropper Exposé-Tool</h2>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', maxWidth: '400px', textAlign: 'center', lineHeight: '1.5' }}>
-              Lade einen Abgeschlossenheitsplan oder ein PDF-Geschossblatt hoch, um vollautomatisch einzelne Wohnungsgrundrisse zu isolieren und zu schneiden.
+              Lade ein PDF-Dokument oder eine Bilddatei (PNG/JPG) des Grundrisses hoch, um vollautomatisch einzelne Wohnungsgrundrisse zu isolieren und zu schneiden.
             </p>
             <button 
               className="btn btn-primary" 
@@ -412,6 +497,7 @@ function App() {
           pageData && (
             <DocumentViewer
               pdfDocument={pdfDocument}
+              imageSrc={imageSrc}
               pageNum={currentPage}
               pageWidth={pageData.width}
               pageHeight={pageData.height}

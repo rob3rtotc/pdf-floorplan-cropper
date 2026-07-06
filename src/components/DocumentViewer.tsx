@@ -4,6 +4,7 @@ import { ZoomIn, ZoomOut, Maximize, Scissors, Hand } from 'lucide-react';
 
 interface DocumentViewerProps {
   pdfDocument: any;
+  imageSrc: string | null;
   pageNum: number;
   pageWidth: number;
   pageHeight: number;
@@ -15,6 +16,7 @@ interface DocumentViewerProps {
 
 export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   pdfDocument,
+  imageSrc,
   pageNum,
   pageWidth,
   pageHeight,
@@ -42,9 +44,24 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   // Edge hover (subdivision)
   const [hoveredEdgePoint, setHoveredEdgePoint] = useState<{ point: Point; index: number } | null>(null);
 
-  // Render PDF page to canvas
+  // Render PDF page or Image to canvas
   useEffect(() => {
-    if (!pdfDocument || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (imageSrc) {
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0);
+      };
+      img.src = imageSrc;
+      return;
+    }
+
+    if (!pdfDocument) return;
 
     const renderPage = async () => {
       try {
@@ -89,7 +106,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         renderTaskRef.current.cancel();
       }
     };
-  }, [pdfDocument, pageNum]);
+  }, [pdfDocument, pageNum, imageSrc]);
 
   // Center the document when loaded
   useEffect(() => {

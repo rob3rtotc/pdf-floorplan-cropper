@@ -213,3 +213,79 @@ export async function exportToA4Pdf(
   // Save PDF document
   doc.save(`Grundriss_WE_${apartmentName}.pdf`);
 }
+
+/**
+ * Renders the cropped polygon area of a PNG/JPG image file.
+ * Trims background canvas and masks everything outside the polygon with solid white.
+ */
+export async function renderCroppedImageArea(
+  imageSrc: string,
+  polygon: Point[]
+): Promise<HTMLCanvasElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous'; // Avoid tainted canvas for external URLs
+    img.onload = () => {
+      const width = img.naturalWidth;
+      const height = img.naturalHeight;
+      
+      // Calculate crop bounding box
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      polygon.forEach(p => {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      });
+      
+      // Add safety margins
+      minX = Math.max(0, minX - 5);
+      minY = Math.max(0, minY - 5);
+      maxX = Math.min(width, maxX + 5);
+      maxY = Math.min(height, maxY + 5);
+      
+      const cropW = maxX - minX;
+      const cropH = maxY - minY;
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = cropW;
+      canvas.height = cropH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not create 2D canvas context.'));
+        return;
+      }
+      
+      // Paint white background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, cropW, cropH);
+      
+      // Apply polygon clipping path
+      ctx.save();
+      ctx.beginPath();
+      polygon.forEach((pt, i) => {
+        const px = pt.x - minX;
+        const py = pt.y - minY;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.clip();
+      
+      // Draw cropped section of original image
+      ctx.drawImage(
+        img,
+        minX, minY, cropW, cropH,
+        0, 0, cropW, cropH
+      );
+      
+      ctx.restore();
+      resolve(canvas);
+    };
+    img.onerror = (e) => reject(e);
+    img.src = imageSrc;
+  });
+}
