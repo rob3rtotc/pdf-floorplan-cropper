@@ -171,11 +171,11 @@ export async function exportToA4Pdf(
   const xOffset = marginLeft + (printableWidth - targetWidthPt) / 2;
   const yOffset = marginTop + (printableHeight - targetHeightPt) / 2;
   
-  // Convert cropped canvas to PNG data URL
-  const imgData = croppedCanvas.toDataURL('image/png');
+  // Convert cropped canvas to JPEG data URL at 80% compression quality
+  const imgData = croppedCanvas.toDataURL('image/jpeg', 0.80);
   
   // Draw the floor plan image
-  doc.addImage(imgData, 'PNG', xOffset, yOffset, targetWidthPt, targetHeightPt);
+  doc.addImage(imgData, 'JPEG', xOffset, yOffset, targetWidthPt, targetHeightPt);
   
   // DRAW EXPOSÉ STYLING (Fine borders and text headers)
   // Draw page border

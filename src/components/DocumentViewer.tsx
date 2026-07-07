@@ -68,6 +68,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         // Cancel existing render task if active
         if (renderTaskRef.current) {
           renderTaskRef.current.cancel();
+          try {
+            await renderTaskRef.current.promise;
+          } catch (e) {
+            // expected cancellation exception
+          }
         }
 
         const page = await pdfDocument.getPage(pageNum);
