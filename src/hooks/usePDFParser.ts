@@ -155,9 +155,15 @@ export function usePDFParser() {
         OPS_codes: OPS
       });
 
+      let firstConstructPathArgs = "";
+
       for (let i = 0; i < fnArray.length; i++) {
         const fn = fnArray[i];
         const args = argsArray[i];
+        
+        if (fn === OPS.constructPath && !firstConstructPathArgs && args) {
+          firstConstructPathArgs = `args[0]: ${typeof args[0]} (isTyped: ${args[0] instanceof Uint8Array || args[0] instanceof Array}, len: ${args[0]?.length}), args[1]: ${typeof args[1]} (len: ${args[1]?.length}), sampleOps: [${Array.from((args[0] as any) || []).slice(0, 10).join(', ')}]`;
+        }
         
         switch (fn) {
           case OPS.save:
@@ -387,7 +393,7 @@ export function usePDFParser() {
         }
       }
       
-      const debugStr = `fnArrayLength: ${fnArray.length}, sample: [${Array.from(fnArray.slice(0, 15)).join(', ')}], OPS.constructPath: ${OPS.constructPath}, lines: ${lines.length}`;
+      const debugStr = `fnArrayLength: ${fnArray.length}, sample: [${Array.from(fnArray.slice(0, 15)).join(', ')}], OPS.constructPath: ${OPS.constructPath}, lines: ${lines.length}, firstArgs: ${firstConstructPathArgs}`;
       setDebugInfo(debugStr);
 
       console.log("[usePDFParser] Total vectors parsed:", lines.length);
