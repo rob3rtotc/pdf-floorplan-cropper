@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePDFParser, type PDFPageData, type VectorLine } from './hooks/usePDFParser';
-import { detectApartments, getSnappedApartmentBbox, type DetectedApartment } from './utils/autoDetect';
+import { detectApartments, getSnappedApartmentBbox, getRoomRects, type DetectedApartment } from './utils/autoDetect';
 import { type Point, type BoundingBox } from './utils/math';
 import { renderCroppedArea, renderCroppedImageArea, exportToA4Pdf, type ExportOptions } from './utils/exportHelper';
 import { recognizeApartmentNumber } from './utils/ocr';
@@ -38,6 +38,8 @@ function App() {
   // Selected apartment and detected lists
   const [detectedApartments, setDetectedApartments] = useState<DetectedApartment[]>([]);
   const [selectedApartment, setSelectedApartment] = useState<string | null>(null);
+  const [showHelpers, setShowHelpers] = useState<boolean>(true);
+  const [roomRects, setRoomRects] = useState<{ x0: number; y0: number; x1: number; y1: number }[]>([]);
 
   // Export metadata
   const [projectName, setProjectName] = useState<string>('');
@@ -266,7 +268,19 @@ function App() {
       if (poly.length >= 3) {
         applyPolygonAndAutoOrientation(poly);
       }
+
+      // Compute and update room rects for visual blue outline helper
+      const rects = getRoomRects(
+        pageData.textItems,
+        pageVectors,
+        selectedApartment,
+        pageData.width,
+        pageData.height
+      );
+      setRoomRects(rects);
     } else {
+      setRoomRects([]);
+
       // Default centered crop box responsive to the autoCropPadding slider
       const w = pageData.width;
       const h = pageData.height;
@@ -456,6 +470,8 @@ function App() {
         setCustomText={setCustomText}
         onExport={handleExportClick}
         isExporting={isExporting}
+        showHelpers={showHelpers}
+        setShowHelpers={setShowHelpers}
       />
 
       {/* Main interactive floor plan workspace */}
@@ -508,6 +524,9 @@ function App() {
               setPolygon={setPolygon}
               activeMode={activeMode}
               setActiveMode={setActiveMode}
+              showHelpers={showHelpers}
+              pageVectors={pageVectors}
+              roomRects={roomRects}
             />
           )
         )}

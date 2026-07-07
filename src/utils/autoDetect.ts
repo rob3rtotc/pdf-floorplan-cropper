@@ -334,35 +334,23 @@ export function computePolygonUnionAndOffset(
 }
 
 /**
- * High-precision snapping algorithm using horizontal/vertical black wall lines
- * and grouping room texts by proximity to target unit labels.
- * If lines are empty (e.g. image-based plan), falls back to default rectangular bounding box.
+ * Extracts and snaps room bounding boxes for the selected apartment.
  */
-export function getSnappedApartmentBbox(
+export function getRoomRects(
   textItems: ParsedTextItem[],
   lines: VectorLine[],
   apartmentName: string,
-  padding: number,
   pageWidth: number,
   pageHeight: number
-): Point[] {
+): { x0: number; y0: number; x1: number; y1: number }[] {
   const normalizedTarget = normalizeApartmentKey(apartmentName);
+  const roomRects: { x0: number; y0: number; x1: number; y1: number }[] = [];
 
-  // Fallback 1: If no vector lines are present (e.g., raster images), return standard rectangular crop
-  if (lines.length === 0) {
-    const rawBox = getApartmentBoundingBox(textItems, apartmentName, padding, pageWidth, pageHeight);
-    if (!rawBox) return [];
-    const poly = bboxToPolygon(rawBox);
-    // Convert from PDF space (y goes up) to viewport space (y goes down)
-    return poly.map(pt => ({
-      x: pt.x,
-      y: pageHeight - pt.y
-    }));
-  }
+  if (lines.length === 0) return [];
 
   // 1. Separate vector lines into horizontal and vertical wall segments
   interface LineSegment {
-    coord: number; // constant x for vertical, constant y for horizontal
+    coord: number;
     min: number;
     max: number;
   }
@@ -370,13 +358,12 @@ export function getSnappedApartmentBbox(
   const verticalWalls: LineSegment[] = [];
 
   lines.forEach(l => {
-    // Filter for black or dark gray drawing paths (typical wall outlines)
     const isDark = !l.color || l.color === 'black' || l.color === '#000000' || l.color.startsWith('rgb(0,') || l.color.startsWith('rgba(0,');
     if (!isDark) return;
 
     const w = l.x1 - l.x0;
     const h = l.y1 - l.y0;
-    if (w < 1 && h < 1) return; // skip tiny dots
+    if (w < 1 && h < 1) return;
     
     const isHoriz = h < w;
     if (isHoriz) {
@@ -400,7 +387,6 @@ export function getSnappedApartmentBbox(
     if (!text) return;
 
     const cx = item.x + (item.width || 10) / 2;
-    // Flip PDF y coordinate to viewport space!
     const cy = pageHeight - (item.y + (item.height || 8) / 2);
     roomCandidates.push({ cx, cy, text });
   });
@@ -413,8 +399,6 @@ export function getSnappedApartmentBbox(
     const norm = normalizeApartmentKey(cand.text);
     const upperText = cand.text.toUpperCase();
     
-    // If it's a common area (Treppenhaus, Gemeinschaftseigentum), always include it
-    // in both apartments' crops so the stairs and shared hallways are visible
     const isCommonArea = upperText === 'G' || upperText === 'TH' || upperText === 'TR' || 
                          upperText.includes('TREPPENHAUS') || upperText.includes('GEMEINSCHAFT');
     if (isCommonArea) {
@@ -422,13 +406,11 @@ export function getSnappedApartmentBbox(
       return;
     }
 
-    // If the text is the exact unit number (e.g. "1" or "2"), treat it as a center
     if (norm === normalizedTarget) {
       roomCenters.push({ x: cand.cx, y: cand.cy });
       return;
     }
 
-    // If it's a room label, check if a unit number matches nearby (within 60 points)
     const isRoomName = roomKeywords.some(keyword => upperText.includes(keyword));
     if (isRoomName) {
       let closestLabel: string | null = null;
@@ -451,26 +433,15 @@ export function getSnappedApartmentBbox(
     }
   });
 
-  // Fallback 2: If no matching room coordinates are grouped, use standard bounding box fallback
-  if (roomCenters.length === 0) {
-    const rawBox = getApartmentBoundingBox(textItems, apartmentName, padding, pageWidth, pageHeight);
-    if (!rawBox) return [];
-    const poly = bboxToPolygon(rawBox);
-    return poly.map(pt => ({
-      x: pt.x,
-      y: pageHeight - pt.y
-    }));
-  }
+  if (roomCenters.length === 0) return [];
 
   // 4. Ray-cast boundary snap for each room center to find walls
-  const tolerance = 15; // overlap tolerance to catch window/door gaps or offsets
-  const roomRects: { x0: number; y0: number; x1: number; y1: number }[] = [];
+  const tolerance = 15;
 
   roomCenters.forEach(pt => {
     const cx = pt.x;
     const cy = pt.y;
 
-    // Raycast Left
     let leftWall = 0;
     verticalWalls.forEach(w => {
       if (w.coord < cx && w.min - tolerance <= cy && cy <= w.max + tolerance) {
@@ -478,7 +449,6 @@ export function getSnappedApartmentBbox(
       }
     });
 
-    // Raycast Right
     let rightWall = pageWidth;
     verticalWalls.forEach(w => {
       if (w.coord > cx && w.min - tolerance <= cy && cy <= w.max + tolerance) {
@@ -486,7 +456,6 @@ export function getSnappedApartmentBbox(
       }
     });
 
-    // Raycast Up
     let upWall = 0;
     horizontalWalls.forEach(w => {
       if (w.coord < cy && w.min - tolerance <= cx && cx <= w.max + tolerance) {
@@ -494,7 +463,6 @@ export function getSnappedApartmentBbox(
       }
     });
 
-    // Raycast Down
     let downWall = pageHeight;
     horizontalWalls.forEach(w => {
       if (w.coord > cy && w.min - tolerance <= cx && cx <= w.max + tolerance) {
@@ -502,7 +470,6 @@ export function getSnappedApartmentBbox(
       }
     });
 
-    // Verify coordinates validity (fallback to 100x100 box if ray-casting fails to snap)
     const x0 = leftWall > 0 ? leftWall : cx - 80;
     const x1 = rightWall < pageWidth ? rightWall : cx + 80;
     const y0 = upWall > 0 ? upWall : cy - 80;
@@ -512,6 +479,46 @@ export function getSnappedApartmentBbox(
       roomRects.push({ x0, y0, x1, y1 });
     }
   });
+
+  return roomRects;
+}
+
+/**
+ * High-precision snapping algorithm using horizontal/vertical black wall lines
+ * and grouping room texts by proximity to target unit labels.
+ * If lines are empty (e.g. image-based plan), falls back to default rectangular bounding box.
+ */
+export function getSnappedApartmentBbox(
+  textItems: ParsedTextItem[],
+  lines: VectorLine[],
+  apartmentName: string,
+  padding: number,
+  pageWidth: number,
+  pageHeight: number
+): Point[] {
+  // Fallback 1: If no vector lines are present (e.g., raster images), return standard rectangular crop
+  if (lines.length === 0) {
+    const rawBox = getApartmentBoundingBox(textItems, apartmentName, padding, pageWidth, pageHeight);
+    if (!rawBox) return [];
+    const poly = bboxToPolygon(rawBox);
+    return poly.map(pt => ({
+      x: pt.x,
+      y: pageHeight - pt.y
+    }));
+  }
+
+  const roomRects = getRoomRects(textItems, lines, apartmentName, pageWidth, pageHeight);
+
+  // Fallback 2: If no matching room coordinates are grouped, use standard bounding box fallback
+  if (roomRects.length === 0) {
+    const rawBox = getApartmentBoundingBox(textItems, apartmentName, padding, pageWidth, pageHeight);
+    if (!rawBox) return [];
+    const poly = bboxToPolygon(rawBox);
+    return poly.map(pt => ({
+      x: pt.x,
+      y: pageHeight - pt.y
+    }));
+  }
 
   // 5. Run the Orthogonal Polygon Union and Offset algorithm
   return computePolygonUnionAndOffset(roomRects, padding);

@@ -31,6 +31,8 @@ interface ControlPanelProps {
   onExport: () => void;
   isExporting: boolean;
   recommendedOrientation: 'portrait' | 'landscape';
+  showHelpers: boolean;
+  setShowHelpers: (s: boolean) => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -47,17 +49,17 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   isOcrLoading,
   autoCropPadding,
   setAutoCropPadding,
-  
   projectName,
   setProjectName,
   orientation,
   setOrientation,
   customText,
   setCustomText,
-  
   onExport,
   isExporting,
-  recommendedOrientation
+  recommendedOrientation,
+  showHelpers,
+  setShowHelpers
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -188,6 +190,19 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   onChange={(e) => setAutoCropPadding(parseInt(e.target.value))}
                   style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer', marginTop: '0.25rem' }}
                 />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.125rem', marginBottom: '0.125rem' }}>
+                <input 
+                  type="checkbox" 
+                  id="show-helpers-checkbox"
+                  checked={showHelpers}
+                  onChange={(e) => setShowHelpers(e.target.checked)}
+                  style={{ width: '14px', height: '14px', accentColor: 'var(--accent)', cursor: 'pointer' }}
+                />
+                <label htmlFor="show-helpers-checkbox" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer', userSelect: 'none' }}>
+                  Wände &amp; Räume in Blau hervorheben
+                </label>
               </div>
 
               <button 

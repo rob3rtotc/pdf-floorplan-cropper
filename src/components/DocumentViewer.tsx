@@ -2,6 +2,8 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { type Point, getClosestPointOnSegment } from '../utils/math';
 import { ZoomIn, ZoomOut, Maximize, Scissors, Hand } from 'lucide-react';
 
+import { type VectorLine } from '../hooks/usePDFParser';
+
 interface DocumentViewerProps {
   pdfDocument: any;
   imageSrc: string | null;
@@ -12,6 +14,9 @@ interface DocumentViewerProps {
   setPolygon: (points: Point[]) => void;
   activeMode: 'crop' | 'pan';
   setActiveMode: (mode: 'crop' | 'pan') => void;
+  showHelpers?: boolean;
+  pageVectors?: VectorLine[];
+  roomRects?: { x0: number; y0: number; x1: number; y1: number }[];
 }
 
 export const DocumentViewer: React.FC<DocumentViewerProps> = ({
@@ -23,7 +28,10 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   polygon,
   setPolygon,
   activeMode,
-  setActiveMode
+  setActiveMode,
+  showHelpers = false,
+  pageVectors = [],
+  roomRects = []
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -349,6 +357,42 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           }}
           onClick={handleSvgClick}
         >
+          {/* 0. DEBUG HELPERS (Red walls and blue room rects) */}
+          {showHelpers && (
+            <g pointerEvents="none">
+              {/* Extracted wall lines in semi-transparent red */}
+              {pageVectors.map((l, idx) => {
+                const isDark = !l.color || l.color === 'black' || l.color === '#000000' || l.color.startsWith('rgb(0,') || l.color.startsWith('rgba(0,');
+                if (!isDark) return null;
+                return (
+                  <line
+                    key={`vec-${idx}`}
+                    x1={l.x0}
+                    y1={l.y0}
+                    x2={l.x1}
+                    y2={l.y1}
+                    stroke="rgba(239, 68, 68, 0.35)"
+                    strokeWidth={1.5 / zoom}
+                  />
+                );
+              })}
+              
+              {/* Snapped room rectangles in blue */}
+              {roomRects.map((r, idx) => (
+                <rect
+                  key={`rrect-${idx}`}
+                  x={r.x0}
+                  y={r.y0}
+                  width={r.x1 - r.x0}
+                  height={r.y1 - r.y0}
+                  fill="rgba(59, 130, 246, 0.15)"
+                  stroke="#3b82f6"
+                  strokeWidth={2 / zoom}
+                />
+              ))}
+            </g>
+          )}
+
           {/* 1. MASK OVERLAY (dims everything outside crop area) */}
           {activeMode === 'crop' && polygon.length >= 3 && (
             <path
