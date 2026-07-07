@@ -47,21 +47,24 @@ function normalizeApartmentKey(key: string): string {
  */
 export function detectApartments(
   textItems: ParsedTextItem[],
-  pageWidth: number = 0,
-  pageHeight: number = 0
+  _pageWidth: number = 0,
+  _pageHeight: number = 0
 ): DetectedApartment[] {
   const counts: { [key: string]: { original: string; count: number } } = {};
 
   textItems.forEach(item => {
-    // Exclude legend & title block texts
-    if (!isWithinBuildingPlan(item, pageWidth, pageHeight)) return;
-
+    // DO NOT exclude the legend block for apartment detection, as it contains 
+    // the most reliable list of all units. The crop limits will be constrained
+    // to the building plan coordinate space later during the snap phase.
     const text = item.str.trim();
     if (!text) return;
 
     for (const pattern of APARTMENT_PATTERNS) {
-      const match = text.match(pattern);
-      if (match) {
+      // Convert pattern to global regex to find all occurrences in multi-line blocks
+      const globalPattern = new RegExp(pattern.source, 'gi');
+      let match;
+      
+      while ((match = globalPattern.exec(text)) !== null) {
         const rawKey = match[1];
         const key = normalizeApartmentKey(rawKey);
         
@@ -86,11 +89,10 @@ export function detectApartments(
           counts[key].count++;
         } else {
           counts[key] = {
-            original: key,
+            original: rawKey,
             count: 1
           };
         }
-        break; // Match found, skip other patterns for this item
       }
     }
   });
@@ -409,7 +411,17 @@ export function getSnappedApartmentBbox(
 
   roomCandidates.forEach(cand => {
     const norm = normalizeApartmentKey(cand.text);
+    const upperText = cand.text.toUpperCase();
     
+    // If it's a common area (Treppenhaus, Gemeinschaftseigentum), always include it
+    // in both apartments' crops so the stairs and shared hallways are visible
+    const isCommonArea = upperText === 'G' || upperText === 'TH' || upperText === 'TR' || 
+                         upperText.includes('TREPPENHAUS') || upperText.includes('GEMEINSCHAFT');
+    if (isCommonArea) {
+      roomCenters.push({ x: cand.cx, y: cand.cy });
+      return;
+    }
+
     // If the text is the exact unit number (e.g. "1" or "2"), treat it as a center
     if (norm === normalizedTarget) {
       roomCenters.push({ x: cand.cx, y: cand.cy });
@@ -417,7 +429,7 @@ export function getSnappedApartmentBbox(
     }
 
     // If it's a room label, check if a unit number matches nearby (within 60 points)
-    const isRoomName = roomKeywords.some(keyword => cand.text.toUpperCase().includes(keyword));
+    const isRoomName = roomKeywords.some(keyword => upperText.includes(keyword));
     if (isRoomName) {
       let closestLabel: string | null = null;
       let minDist = 60.0;
