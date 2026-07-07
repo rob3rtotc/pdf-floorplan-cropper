@@ -144,7 +144,8 @@ export function usePDFParser() {
         setStrokeGray: 56,
         setFillGray: 57,
         setStrokeRGBColor: 58,
-        setFillRGBColor: 59
+        setFillRGBColor: 59,
+        constructPath: 91
       };
 
       console.log("[usePDFParser] Extracted operator list:", {
@@ -204,6 +205,88 @@ export function usePDFParser() {
               strokeColor = '#000000';
             } else {
               strokeColor = `rgb(${fr},${fg},${fb})`;
+            }
+            break;
+          }
+            
+          case OPS.constructPath: {
+            const ops = args[0];
+            const coords = args[1];
+            let coordIdx = 0;
+            
+            for (let j = 0; j < ops.length; j++) {
+              const op = ops[j];
+              
+              switch (op) {
+                case 0: // DrawOPS.moveTo
+                  currentPt = transformPoint(ctm, coords[coordIdx++], coords[coordIdx++]);
+                  startPt = { ...currentPt };
+                  break;
+                  
+                case 1: { // DrawOPS.lineTo
+                  const nextPt = transformPoint(ctm, coords[coordIdx++], coords[coordIdx++]);
+                  lines.push({
+                    x0: currentPt.x,
+                    y0: currentPt.y,
+                    x1: nextPt.x,
+                    y1: nextPt.y,
+                    color: strokeColor,
+                    width: strokeWidth
+                  });
+                  currentPt = nextPt;
+                  break;
+                }
+                  
+                case 2: { // DrawOPS.curveTo
+                  // Skip first 2 control points coordinates (4 numbers), read only the endpoint (cp3)
+                  coordIdx += 4;
+                  const cp3x = coords[coordIdx++];
+                  const cp3y = coords[coordIdx++];
+                  const nextPt = transformPoint(ctm, cp3x, cp3y);
+                  
+                  lines.push({
+                    x0: currentPt.x,
+                    y0: currentPt.y,
+                    x1: nextPt.x,
+                    y1: nextPt.y,
+                    color: strokeColor,
+                    width: strokeWidth
+                  });
+                  currentPt = nextPt;
+                  break;
+                }
+                  
+                case 3: { // DrawOPS.quadraticCurveTo
+                  // Skip first control point coordinates (2 numbers), read only the endpoint (cp2)
+                  coordIdx += 2;
+                  const cp2x = coords[coordIdx++];
+                  const cp2y = coords[coordIdx++];
+                  const nextPt = transformPoint(ctm, cp2x, cp2y);
+                  
+                  lines.push({
+                    x0: currentPt.x,
+                    y0: currentPt.y,
+                    x1: nextPt.x,
+                    y1: nextPt.y,
+                    color: strokeColor,
+                    width: strokeWidth
+                  });
+                  currentPt = nextPt;
+                  break;
+                }
+                  
+                case 4: // DrawOPS.closePath
+                  lines.push({
+                    x0: currentPt.x,
+                    y0: currentPt.y,
+                    x1: startPt.x,
+                    y1: startPt.y,
+                    color: strokeColor,
+                    width: strokeWidth
+                  });
+                  currentPt = { ...startPt };
+                  break;
+              }
             }
             break;
           }
