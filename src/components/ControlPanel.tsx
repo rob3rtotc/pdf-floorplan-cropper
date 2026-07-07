@@ -33,6 +33,8 @@ interface ControlPanelProps {
   recommendedOrientation: 'portrait' | 'landscape';
   showHelpers: boolean;
   setShowHelpers: (s: boolean) => void;
+  pageVectorsCount: number;
+  roomRectsCount: number;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -59,7 +61,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   isExporting,
   recommendedOrientation,
   showHelpers,
-  setShowHelpers
+  setShowHelpers,
+  pageVectorsCount,
+  roomRectsCount
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -226,7 +230,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
               {detectedApartments.length > 0 && (
                 <div style={{ marginTop: '0.5rem' }}>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '0.375rem' }}>Erkannte Bezeichnungen:</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.375rem' }}>
+                    <label className="input-label" style={{ margin: 0 }}>Erkannte Bezeichnungen:</label>
+                    <span style={{ fontSize: '9px', color: 'rgba(250, 249, 245, 0.5)', fontWeight: 500 }}>
+                      Wände: {pageVectorsCount} | Räume: {roomRectsCount}
+                    </span>
+                  </div>
                   <div className="apartment-list">
                     {detectedApartments.map(apt => (
                       <div 

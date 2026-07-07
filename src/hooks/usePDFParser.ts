@@ -129,8 +129,7 @@ export function usePDFParser() {
       let strokeColor = '#000000';
       let strokeWidth = 1.0;
       
-      // OPS codes mapping matching PDF.js
-      const OPS = {
+      const OPS = (pdfjsLib as any).OPS || {
         save: 10,
         restore: 11,
         transform: 12,
@@ -147,6 +146,12 @@ export function usePDFParser() {
         setStrokeRGBColor: 58,
         setFillRGBColor: 59
       };
+
+      console.log("[usePDFParser] Extracted operator list:", {
+        fnArrayLength: fnArray.length,
+        opsSample: fnArray.slice(0, 10),
+        OPS_codes: OPS
+      });
 
       for (let i = 0; i < fnArray.length; i++) {
         const fn = fnArray[i];
@@ -298,6 +303,7 @@ export function usePDFParser() {
         }
       }
       
+      console.log("[usePDFParser] Total vectors parsed:", lines.length);
       return lines;
     } catch (err) {
       console.error('Error extracting page vectors:', err);

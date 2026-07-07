@@ -472,6 +472,8 @@ function App() {
         isExporting={isExporting}
         showHelpers={showHelpers}
         setShowHelpers={setShowHelpers}
+        pageVectorsCount={pageVectors.length}
+        roomRectsCount={roomRects.length}
       />
 
       {/* Main interactive floor plan workspace */}
