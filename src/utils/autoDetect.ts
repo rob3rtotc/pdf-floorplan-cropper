@@ -27,8 +27,8 @@ function isWithinBuildingPlan(item: ParsedTextItem, pageWidth: number, pageHeigh
   // 1. Exclude the legend on the right (typical x > 75% of page width)
   if (item.x > pageWidth * 0.75) return false;
   
-  // 2. Exclude the title block at the bottom (typical PDF y < 12% of page height)
-  if (item.y < pageHeight * 0.12) return false;
+  // 2. Exclude the title block at the bottom (typical y > 88% of page height in viewport space)
+  if (item.y > pageHeight * 0.88) return false;
   
   return true;
 }
@@ -170,10 +170,10 @@ export function getApartmentBoundingBox(
  */
 export function bboxToPolygon(bbox: BoundingBox): { x: number; y: number }[] {
   return [
-    { x: bbox.minX, y: bbox.maxY }, // Top-Left (PDF y-axis goes upwards!)
-    { x: bbox.maxX, y: bbox.maxY }, // Top-Right
-    { x: bbox.maxX, y: bbox.minY }, // Bottom-Right
-    { x: bbox.minX, y: bbox.minY }  // Bottom-Left
+    { x: bbox.minX, y: bbox.minY }, // Top-Left (viewport space)
+    { x: bbox.maxX, y: bbox.minY }, // Top-Right
+    { x: bbox.maxX, y: bbox.maxY }, // Bottom-Right
+    { x: bbox.minX, y: bbox.maxY }  // Bottom-Left
   ];
 }
 
@@ -387,7 +387,7 @@ export function getRoomRects(
     if (!text) return;
 
     const cx = item.x + (item.width || 10) / 2;
-    const cy = pageHeight - (item.y + (item.height || 8) / 2);
+    const cy = item.y + (item.height || 8) / 2;
     roomCandidates.push({ cx, cy, text });
   });
 
@@ -500,11 +500,7 @@ export function getSnappedApartmentBbox(
   if (lines.length === 0) {
     const rawBox = getApartmentBoundingBox(textItems, apartmentName, padding, pageWidth, pageHeight);
     if (!rawBox) return [];
-    const poly = bboxToPolygon(rawBox);
-    return poly.map(pt => ({
-      x: pt.x,
-      y: pageHeight - pt.y
-    }));
+    return bboxToPolygon(rawBox);
   }
 
   const roomRects = getRoomRects(textItems, lines, apartmentName, pageWidth, pageHeight);
@@ -513,11 +509,7 @@ export function getSnappedApartmentBbox(
   if (roomRects.length === 0) {
     const rawBox = getApartmentBoundingBox(textItems, apartmentName, padding, pageWidth, pageHeight);
     if (!rawBox) return [];
-    const poly = bboxToPolygon(rawBox);
-    return poly.map(pt => ({
-      x: pt.x,
-      y: pageHeight - pt.y
-    }));
+    return bboxToPolygon(rawBox);
   }
 
   // 5. Run the Orthogonal Polygon Union and Offset algorithm

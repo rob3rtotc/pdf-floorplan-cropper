@@ -65,19 +65,29 @@ export function usePDFParser() {
       const viewport = page.getViewport({ scale: 1.0 });
       const textContent = await page.getTextContent();
       
+      const transformPoint = (m: number[], px: number, py: number) => ({
+        x: m[0] * px + m[2] * py + m[4],
+        y: m[1] * px + m[3] * py + m[5]
+      });
+
       const textItems: ParsedTextItem[] = textContent.items
         .filter((item: any) => typeof item.str === 'string' && item.str.trim() !== '')
         .map((item: any) => {
-          // transform is a 6-element array representing the 2D transform matrix:
-          // [scaleX, skewY, skewX, scaleY, transformX, transformY]
-          const x = item.transform[4];
-          const y = item.transform[5];
+          const tx = item.transform[4];
+          const ty = item.transform[5];
+          const tw = item.width || 0;
+          const th = item.height || 0;
+          
+          const pdfCx = tx + tw / 2;
+          const pdfCy = ty + th / 2;
+          const pt = transformPoint(viewport.transform, pdfCx, pdfCy);
+          
           return {
             str: item.str,
-            x,
-            y,
-            width: item.width || 0,
-            height: item.height || 0
+            x: pt.x - tw / 2,
+            y: pt.y - th / 2,
+            width: tw,
+            height: th
           };
         });
 
