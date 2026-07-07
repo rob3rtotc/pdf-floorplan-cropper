@@ -217,21 +217,26 @@ export function usePDFParser() {
           }
             
           case OPS.constructPath: {
-            const ops = args[0];
-            const coords = args[1];
-            let coordIdx = 0;
+            const pathBuffer = args[1] && args[1][0];
+            if (!pathBuffer) break;
             
-            for (let j = 0; j < ops.length; j++) {
-              const op = ops[j];
+            let idx = 0;
+            while (idx < pathBuffer.length) {
+              const op = pathBuffer[idx++];
               
               switch (op) {
-                case 0: // DrawOPS.moveTo
-                  currentPt = transformPoint(ctm, coords[coordIdx++], coords[coordIdx++]);
+                case 0: { // DrawOPS.moveTo
+                  const x = pathBuffer[idx++];
+                  const y = pathBuffer[idx++];
+                  currentPt = transformPoint(ctm, x, y);
                   startPt = { ...currentPt };
                   break;
+                }
                   
                 case 1: { // DrawOPS.lineTo
-                  const nextPt = transformPoint(ctm, coords[coordIdx++], coords[coordIdx++]);
+                  const x = pathBuffer[idx++];
+                  const y = pathBuffer[idx++];
+                  const nextPt = transformPoint(ctm, x, y);
                   lines.push({
                     x0: currentPt.x,
                     y0: currentPt.y,
@@ -245,10 +250,10 @@ export function usePDFParser() {
                 }
                   
                 case 2: { // DrawOPS.curveTo
-                  // Skip first 2 control points coordinates (4 numbers), read only the endpoint (cp3)
-                  coordIdx += 4;
-                  const cp3x = coords[coordIdx++];
-                  const cp3y = coords[coordIdx++];
+                  // Skip cp1 and cp2 control points coordinates (4 numbers), read only the endpoint (cp3)
+                  idx += 4;
+                  const cp3x = pathBuffer[idx++];
+                  const cp3y = pathBuffer[idx++];
                   const nextPt = transformPoint(ctm, cp3x, cp3y);
                   
                   lines.push({
@@ -264,10 +269,10 @@ export function usePDFParser() {
                 }
                   
                 case 3: { // DrawOPS.quadraticCurveTo
-                  // Skip first control point coordinates (2 numbers), read only the endpoint (cp2)
-                  coordIdx += 2;
-                  const cp2x = coords[coordIdx++];
-                  const cp2y = coords[coordIdx++];
+                  // Skip cp1 control point coordinates (2 numbers), read only the endpoint (cp2)
+                  idx += 2;
+                  const cp2x = pathBuffer[idx++];
+                  const cp2y = pathBuffer[idx++];
                   const nextPt = transformPoint(ctm, cp2x, cp2y);
                   
                   lines.push({
