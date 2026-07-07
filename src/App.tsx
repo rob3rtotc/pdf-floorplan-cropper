@@ -16,6 +16,7 @@ function App() {
     numPages,
     loading: pdfLoading,
     error: pdfError,
+    debugInfo,
     loadPDF,
     getPageData,
     getPageVectors,
@@ -474,6 +475,7 @@ function App() {
         setShowHelpers={setShowHelpers}
         pageVectorsCount={pageVectors.length}
         roomRectsCount={roomRects.length}
+        debugInfo={debugInfo}
       />
 
       {/* Main interactive floor plan workspace */}

@@ -33,6 +33,7 @@ export function usePDFParser() {
   const [numPages, setNumPages] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   const loadPDF = useCallback(async (fileOrUrl: File | string) => {
     setLoading(true);
@@ -386,10 +387,14 @@ export function usePDFParser() {
         }
       }
       
+      const debugStr = `fnArrayLength: ${fnArray.length}, sample: [${Array.from(fnArray.slice(0, 15)).join(', ')}], OPS.constructPath: ${OPS.constructPath}, lines: ${lines.length}`;
+      setDebugInfo(debugStr);
+
       console.log("[usePDFParser] Total vectors parsed:", lines.length);
       return lines;
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error extracting page vectors:', err);
+      setDebugInfo(`Error: ${err.message || err}`);
       return [];
     }
   }, [pdfDocument]);
@@ -398,6 +403,7 @@ export function usePDFParser() {
     setPdfDocument(null);
     setNumPages(0);
     setError(null);
+    setDebugInfo('');
   }, []);
 
   return {
@@ -405,6 +411,7 @@ export function usePDFParser() {
     numPages,
     loading,
     error,
+    debugInfo,
     loadPDF,
     getPageData,
     getPageVectors,

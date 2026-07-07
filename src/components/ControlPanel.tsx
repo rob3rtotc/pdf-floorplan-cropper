@@ -35,6 +35,7 @@ interface ControlPanelProps {
   setShowHelpers: (s: boolean) => void;
   pageVectorsCount: number;
   roomRectsCount: number;
+  debugInfo: string;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -63,7 +64,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   showHelpers,
   setShowHelpers,
   pageVectorsCount,
-  roomRectsCount
+  roomRectsCount,
+  debugInfo
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -315,6 +317,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               {isExporting ? 'Exportiert...' : 'A4 Exposé-PDF erzeugen'}
             </button>
           </section>
+        )}
+
+        {fileName && debugInfo && (
+          <div style={{ marginTop: '1rem', padding: '0.5rem', background: '#172227', border: '1px solid rgba(250,249,245,0.1)', borderRadius: '6px', fontSize: '9px', fontFamily: 'monospace', color: 'rgba(250,249,245,0.6)', wordBreak: 'break-all' }}>
+            <strong>Debug-Info:</strong><br />
+            {debugInfo}
+          </div>
         )}
       </div>
     </aside>
