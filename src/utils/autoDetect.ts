@@ -1,4 +1,5 @@
-import type { ParsedTextItem } from '../hooks/usePDFParser';
+import type { ParsedTextItem, VectorLine } from '../hooks/usePDFParser';
+import type { Point } from './math';
 
 // Regex patterns to detect apartment numbers
 // 1. Matches WE followed by numbers, optionally with dots (e.g., WE 11.01, WE 1, WE 12)
@@ -172,4 +173,334 @@ export function bboxToPolygon(bbox: BoundingBox): { x: number; y: number }[] {
     { x: bbox.maxX, y: bbox.minY }, // Bottom-Right
     { x: bbox.minX, y: bbox.minY }  // Bottom-Left
   ];
+}
+
+/**
+ * Computes the outer outline polygon of a union of rectangles,
+ * and offsets it outwards by 'padding'.
+ */
+export function computePolygonUnionAndOffset(
+  rectangles: { x0: number; y0: number; x1: number; y1: number }[],
+  padding: number
+): Point[] {
+  if (rectangles.length === 0) return [];
+  
+  // 1. Collect all x and y coordinates
+  const xCoords = Array.from(new Set(rectangles.flatMap(r => [r.x0, r.x1]))).sort((a, b) => a - b);
+  const yCoords = Array.from(new Set(rectangles.flatMap(r => [r.y0, r.y1]))).sort((a, b) => a - b);
+  
+  const isInside = (x: number, y: number) => {
+    for (const r of rectangles) {
+      if (r.x0 + 0.05 < x && x < r.x1 - 0.05 && r.y0 + 0.05 < y && y < r.y1 - 0.05) {
+        return true;
+      }
+    }
+    return false;
+  };
+  
+  // 2. Extract horizontal boundary sub-segments
+  interface HorizSegment {
+    x0: number;
+    x1: number;
+    y: number;
+    offsetDir: number;
+  }
+  const horizSegments: HorizSegment[] = [];
+  for (const y of yCoords) {
+    for (let i = 0; i < xCoords.length - 1; i++) {
+      const x0 = xCoords[i];
+      const x1 = xCoords[i + 1];
+      const mx = (x0 + x1) / 2;
+      
+      let isEdge = false;
+      for (const r of rectangles) {
+        if (r.x0 <= x0 && x1 <= r.x1 && (Math.abs(r.y0 - y) < 0.05 || Math.abs(r.y1 - y) < 0.05)) {
+          isEdge = true;
+          break;
+        }
+      }
+      
+      if (isEdge && !isInside(mx, y)) {
+        const insideAbove = isInside(mx, y - 0.5);
+        const insideBelow = isInside(mx, y + 0.5);
+        if (insideAbove !== insideBelow) {
+          const offsetDir = insideAbove ? 1 : -1;
+          horizSegments.push({ x0, x1, y, offsetDir });
+        }
+      }
+    }
+  }
+  
+  // 3. Extract vertical boundary sub-segments
+  interface VertSegment {
+    y0: number;
+    y1: number;
+    x: number;
+    offsetDir: number;
+  }
+  const vertSegments: VertSegment[] = [];
+  for (const x of xCoords) {
+    for (let i = 0; i < yCoords.length - 1; i++) {
+      const y0 = yCoords[i];
+      const y1 = yCoords[i + 1];
+      const my = (y0 + y1) / 2;
+      
+      let isEdge = false;
+      for (const r of rectangles) {
+        if (r.y0 <= y0 && y1 <= r.y1 && (Math.abs(r.x0 - x) < 0.05 || Math.abs(r.x1 - x) < 0.05)) {
+          isEdge = true;
+          break;
+        }
+      }
+      
+      if (isEdge && !isInside(x, my)) {
+        const insideLeft = isInside(x - 0.5, my);
+        const insideRight = isInside(x + 0.5, my);
+        if (insideLeft !== insideRight) {
+          const offsetDir = insideLeft ? 1 : -1;
+          vertSegments.push({ y0, y1, x, offsetDir });
+        }
+      }
+    }
+  }
+  
+  // 4. Find all intersections of offset segments
+  interface Corner {
+    vx: number;
+    hy: number;
+    ox: number;
+    oy: number;
+  }
+  const originalCorners: Corner[] = [];
+  for (const vs of vertSegments) {
+    for (const hs of horizSegments) {
+      const xMatch = Math.abs(vs.x - hs.x0) < 0.05 || Math.abs(vs.x - hs.x1) < 0.05;
+      const yMatch = Math.abs(hs.y - vs.y0) < 0.05 || Math.abs(hs.y - vs.y1) < 0.05;
+      if (xMatch && yMatch) {
+        const ox = vs.x + vs.offsetDir * padding;
+        const oy = hs.y + hs.offsetDir * padding;
+        originalCorners.push({ vx: vs.x, hy: hs.y, ox, oy });
+      }
+    }
+  }
+  
+  if (originalCorners.length === 0) return [];
+  
+  // 5. Connect the corners to build the closed polygon loop
+  const polygon: Point[] = [];
+  let current = originalCorners[0];
+  const visited = new Set<Corner>();
+  
+  while (visited.size < originalCorners.length) {
+    visited.add(current);
+    polygon.push({ x: current.ox, y: current.oy });
+    
+    const isVertStep = visited.size % 2 === 1;
+    let nextCorner: Corner | null = null;
+    
+    for (const c of originalCorners) {
+      if (visited.has(c)) continue;
+      if (isVertStep) {
+        if (Math.abs(c.vx - current.vx) < 0.05) {
+          nextCorner = c;
+          break;
+        }
+      } else {
+        if (Math.abs(c.hy - current.hy) < 0.05) {
+          nextCorner = c;
+          break;
+        }
+      }
+    }
+    
+    if (!nextCorner) {
+      for (const c of originalCorners) {
+        if (!visited.has(c)) {
+          if (Math.abs(c.vx - current.vx) < 0.05 || Math.abs(c.hy - current.hy) < 0.05) {
+            nextCorner = c;
+            break;
+          }
+        }
+      }
+    }
+    
+    if (!nextCorner) break;
+    current = nextCorner;
+  }
+  
+  return polygon;
+}
+
+/**
+ * High-precision snapping algorithm using horizontal/vertical black wall lines
+ * and grouping room texts by proximity to target unit labels.
+ * If lines are empty (e.g. image-based plan), falls back to default rectangular bounding box.
+ */
+export function getSnappedApartmentBbox(
+  textItems: ParsedTextItem[],
+  lines: VectorLine[],
+  apartmentName: string,
+  padding: number,
+  pageWidth: number,
+  pageHeight: number
+): Point[] {
+  const normalizedTarget = normalizeApartmentKey(apartmentName);
+
+  // Fallback 1: If no vector lines are present (e.g., raster images), return standard rectangular crop
+  if (lines.length === 0) {
+    const rawBox = getApartmentBoundingBox(textItems, apartmentName, padding, pageWidth, pageHeight);
+    if (!rawBox) return [];
+    const poly = bboxToPolygon(rawBox);
+    // Convert from PDF space (y goes up) to viewport space (y goes down)
+    return poly.map(pt => ({
+      x: pt.x,
+      y: pageHeight - pt.y
+    }));
+  }
+
+  // 1. Separate vector lines into horizontal and vertical wall segments
+  interface LineSegment {
+    coord: number; // constant x for vertical, constant y for horizontal
+    min: number;
+    max: number;
+  }
+  const horizontalWalls: LineSegment[] = [];
+  const verticalWalls: LineSegment[] = [];
+
+  lines.forEach(l => {
+    // Filter for black or dark gray drawing paths (typical wall outlines)
+    const isDark = !l.color || l.color === 'black' || l.color === '#000000' || l.color.startsWith('rgb(0,') || l.color.startsWith('rgba(0,');
+    if (!isDark) return;
+
+    const w = l.x1 - l.x0;
+    const h = l.y1 - l.y0;
+    if (w < 1 && h < 1) return; // skip tiny dots
+    
+    const isHoriz = h < w;
+    if (isHoriz) {
+      horizontalWalls.push({ coord: (l.y0 + l.y1) / 2, min: l.x0, max: l.x1 });
+    } else {
+      verticalWalls.push({ coord: (l.x0 + l.x1) / 2, min: l.y0, max: l.y1 });
+    }
+  });
+
+  // 2. Map all text elements in the plan area into viewport space
+  interface RoomCandidate {
+    cx: number;
+    cy: number;
+    text: string;
+  }
+  const roomCandidates: RoomCandidate[] = [];
+
+  textItems.forEach(item => {
+    if (!isWithinBuildingPlan(item, pageWidth, pageHeight)) return;
+    const text = item.str.trim();
+    if (!text) return;
+
+    const cx = item.x + (item.width || 10) / 2;
+    // Flip PDF y coordinate to viewport space!
+    const cy = pageHeight - (item.y + (item.height || 8) / 2);
+    roomCandidates.push({ cx, cy, text });
+  });
+
+  // 3. Find and group room label centers belonging to this apartment
+  const roomCenters: Point[] = [];
+  const roomKeywords = ['BAD', 'SCHLAFEN', 'WOHNEN', 'FLUR', 'KOCHEN', 'KÜCHE', 'KINDER', 'DIELE', 'WC', 'ABSTELL', 'BALKON', 'TERRASSE'];
+
+  roomCandidates.forEach(cand => {
+    const norm = normalizeApartmentKey(cand.text);
+    
+    // If the text is the exact unit number (e.g. "1" or "2"), treat it as a center
+    if (norm === normalizedTarget) {
+      roomCenters.push({ x: cand.cx, y: cand.cy });
+      return;
+    }
+
+    // If it's a room label, check if a unit number matches nearby (within 60 points)
+    const isRoomName = roomKeywords.some(keyword => cand.text.toUpperCase().includes(keyword));
+    if (isRoomName) {
+      let closestLabel: string | null = null;
+      let minDist = 60.0;
+      
+      roomCandidates.forEach(lbl => {
+        const lblNorm = normalizeApartmentKey(lbl.text);
+        if (lblNorm === normalizedTarget) {
+          const dist = Math.sqrt(Math.pow(cand.cx - lbl.cx, 2) + Math.pow(cand.cy - lbl.cy, 2));
+          if (dist < minDist) {
+            minDist = dist;
+            closestLabel = lblNorm;
+          }
+        }
+      });
+      
+      if (closestLabel === normalizedTarget) {
+        roomCenters.push({ x: cand.cx, y: cand.cy });
+      }
+    }
+  });
+
+  // Fallback 2: If no matching room coordinates are grouped, use standard bounding box fallback
+  if (roomCenters.length === 0) {
+    const rawBox = getApartmentBoundingBox(textItems, apartmentName, padding, pageWidth, pageHeight);
+    if (!rawBox) return [];
+    const poly = bboxToPolygon(rawBox);
+    return poly.map(pt => ({
+      x: pt.x,
+      y: pageHeight - pt.y
+    }));
+  }
+
+  // 4. Ray-cast boundary snap for each room center to find walls
+  const tolerance = 15; // overlap tolerance to catch window/door gaps or offsets
+  const roomRects: { x0: number; y0: number; x1: number; y1: number }[] = [];
+
+  roomCenters.forEach(pt => {
+    const cx = pt.x;
+    const cy = pt.y;
+
+    // Raycast Left
+    let leftWall = 0;
+    verticalWalls.forEach(w => {
+      if (w.coord < cx && w.min - tolerance <= cy && cy <= w.max + tolerance) {
+        leftWall = Math.max(leftWall, w.coord);
+      }
+    });
+
+    // Raycast Right
+    let rightWall = pageWidth;
+    verticalWalls.forEach(w => {
+      if (w.coord > cx && w.min - tolerance <= cy && cy <= w.max + tolerance) {
+        rightWall = Math.min(rightWall, w.coord);
+      }
+    });
+
+    // Raycast Up
+    let upWall = 0;
+    horizontalWalls.forEach(w => {
+      if (w.coord < cy && w.min - tolerance <= cx && cx <= w.max + tolerance) {
+        upWall = Math.max(upWall, w.coord);
+      }
+    });
+
+    // Raycast Down
+    let downWall = pageHeight;
+    horizontalWalls.forEach(w => {
+      if (w.coord > cy && w.min - tolerance <= cx && cx <= w.max + tolerance) {
+        downWall = Math.min(downWall, w.coord);
+      }
+    });
+
+    // Verify coordinates validity (fallback to 100x100 box if ray-casting fails to snap)
+    const x0 = leftWall > 0 ? leftWall : cx - 80;
+    const x1 = rightWall < pageWidth ? rightWall : cx + 80;
+    const y0 = upWall > 0 ? upWall : cy - 80;
+    const y1 = downWall < pageHeight ? downWall : cy + 80;
+    
+    if (x0 < x1 && y0 < y1) {
+      roomRects.push({ x0, y0, x1, y1 });
+    }
+  });
+
+  // 5. Run the Orthogonal Polygon Union and Offset algorithm
+  return computePolygonUnionAndOffset(roomRects, padding);
 }

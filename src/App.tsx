@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { usePDFParser, type PDFPageData } from './hooks/usePDFParser';
-import { detectApartments, getApartmentBoundingBox, bboxToPolygon, type DetectedApartment } from './utils/autoDetect';
+import { usePDFParser, type PDFPageData, type VectorLine } from './hooks/usePDFParser';
+import { detectApartments, getSnappedApartmentBbox, type DetectedApartment } from './utils/autoDetect';
 import { type Point, type BoundingBox } from './utils/math';
 import { renderCroppedArea, renderCroppedImageArea, exportToA4Pdf, type ExportOptions } from './utils/exportHelper';
 import { recognizeApartmentNumber } from './utils/ocr';
@@ -18,6 +18,7 @@ function App() {
     error: pdfError,
     loadPDF,
     getPageData,
+    getPageVectors,
     clearPDF
   } = usePDFParser();
 
@@ -26,6 +27,7 @@ function App() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageData, setPageData] = useState<PDFPageData | null>(null);
+  const [pageVectors, setPageVectors] = useState<VectorLine[]>([]);
 
   // Interaction modes: 'crop', 'calibrate', 'pan'
   const [activeMode, setActiveMode] = useState<'crop' | 'pan'>('pan');
@@ -75,6 +77,7 @@ function App() {
   const loadImagePlan = (fileOrUrl: File | string) => {
     return new Promise<void>((resolve, reject) => {
       setPageData(null);
+      setPageVectors([]);
       clearPDF();
       setImageSrc(null);
 
@@ -121,6 +124,7 @@ function App() {
     clearPDF();
     setImageSrc(null);
     setPageData(null);
+    setPageVectors([]);
     setFileName(null);
   };
 
@@ -223,6 +227,10 @@ function App() {
       if (data) {
         setPageData(data);
         
+        // Load vector lines
+        const vectors = await getPageVectors(currentPage);
+        setPageVectors(vectors);
+        
         // Auto-detect apartment groups on page (passing dimensions to filter out legend)
         const apts = detectApartments(data.textItems, data.width, data.height);
         setDetectedApartments(apts);
@@ -236,7 +244,7 @@ function App() {
     };
 
     fetchPageInfo();
-  }, [pdfDocument, currentPage, getPageData]);
+  }, [pdfDocument, currentPage, getPageData, getPageVectors]);
 
   // Reactively compute the crop box when selectedApartment or padding changes
   useEffect(() => {
@@ -247,21 +255,16 @@ function App() {
       : false;
 
     if (exists && selectedApartment) {
-      const bbox = getApartmentBoundingBox(
+      const poly = getSnappedApartmentBbox(
         pageData.textItems,
+        pageVectors,
         selectedApartment,
         autoCropPadding,
         pageData.width,
         pageData.height
       );
-      if (bbox) {
-        const poly = bboxToPolygon(bbox);
-        const height = pageData.height;
-        const flippedPoly = poly.map(pt => ({
-          x: pt.x,
-          y: height - pt.y
-        }));
-        applyPolygonAndAutoOrientation(flippedPoly);
+      if (poly.length >= 3) {
+        applyPolygonAndAutoOrientation(poly);
       }
     } else {
       // Default centered crop box responsive to the autoCropPadding slider
@@ -279,7 +282,7 @@ function App() {
       ];
       applyPolygonAndAutoOrientation(defaultPoly);
     }
-  }, [selectedApartment, autoCropPadding, pageData, detectedApartments, applyPolygonAndAutoOrientation]);
+  }, [selectedApartment, autoCropPadding, pageData, pageVectors, detectedApartments, applyPolygonAndAutoOrientation]);
 
   // Handle selection of a detected apartment unit or manual text typing
   const handleSelectApartment = (aptName: string) => {
