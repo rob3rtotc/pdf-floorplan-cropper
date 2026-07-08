@@ -21,16 +21,8 @@ export interface DetectedApartment {
  * Helper to check if a text item is located within the building plan drawing area
  * (excluding the legend block on the right and the title block at the bottom).
  */
-function isWithinBuildingPlan(item: ParsedTextItem, pageWidth: number, pageHeight: number): boolean {
-  if (pageWidth <= 0 || pageHeight <= 0) return true;
-  
-  // 1. Exclude the legend on the right (typical x > 75% of page width)
-  if (item.x > pageWidth * 0.75) return false;
-  
-  // 2. Exclude the title block at the bottom (typical y > 88% of page height in viewport space)
-  if (item.y > pageHeight * 0.88) return false;
-  
-  return true;
+function isWithinBuildingPlan(item: ParsedTextItem, _pageWidth: number = 0, _pageHeight: number = 0): boolean {
+  return item.isBuildingPlan !== false;
 }
 
 /**
@@ -65,9 +57,21 @@ export function detectApartments(
       let match;
       
       while ((match = globalPattern.exec(text)) !== null) {
+        // Ignore dates like 10.03.2026
+        if (/\d{1,2}[\.,]\d{1,2}[\.,]\d{4}/.test(text)) {
+          continue;
+        }
+
         const rawKey = match[1];
         const key = normalizeApartmentKey(rawKey);
         
+        // Ignore if followed by square meter units (e.g., 14,83 m²)
+        const suffixIndex = match.index + match[0].length;
+        const followingText = text.substring(suffixIndex, suffixIndex + 12).toLowerCase();
+        if (followingText.includes('m²') || followingText.includes('qm') || followingText.includes('m2')) {
+          continue;
+        }
+
         // Ignore single digits unless prefixed by "WE" or inside parens,
         // to avoid matching random scale numbers, wall measurements
         if (key.length <= 1 && !text.toUpperCase().includes('WE') && !text.includes('(')) {

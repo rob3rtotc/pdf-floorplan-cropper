@@ -6,10 +6,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLi
 
 export interface ParsedTextItem {
   str: string;
-  x: number; // PDF space x
-  y: number; // PDF space y
+  x: number; // Viewport space x
+  y: number; // Viewport space y
   width: number;
   height: number;
+  isBuildingPlan?: boolean;
 }
 
 export interface VectorLine {
@@ -70,6 +71,10 @@ export function usePDFParser() {
         y: m[1] * px + m[3] * py + m[5]
       });
 
+      const viewBox = page.viewBox || [0, 0, viewport.width, viewport.height];
+      const pdfWidth = Math.abs(viewBox[2] - viewBox[0]);
+      const pdfHeight = Math.abs(viewBox[3] - viewBox[1]);
+
       const textItems: ParsedTextItem[] = textContent.items
         .filter((item: any) => typeof item.str === 'string' && item.str.trim() !== '')
         .map((item: any) => {
@@ -82,12 +87,18 @@ export function usePDFParser() {
           const pdfCy = ty + th / 2;
           const pt = transformPoint(viewport.transform, pdfCx, pdfCy);
           
+          // In unrotated PDF space:
+          // Legend is on the right (pdfCx > pdfWidth * 0.74)
+          // Title block is at the bottom (pdfCy < pdfHeight * 0.15)
+          const isBuildingPlan = (pdfCx <= pdfWidth * 0.74) && (pdfCy >= pdfHeight * 0.15);
+          
           return {
             str: item.str,
             x: pt.x - tw / 2,
             y: pt.y - th / 2,
             width: tw,
-            height: th
+            height: th,
+            isBuildingPlan
           };
         });
 
