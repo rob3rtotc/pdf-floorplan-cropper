@@ -399,43 +399,77 @@ export function getRoomRects(
     roomCandidates.push({ cx, cy, text });
   });
 
+  // Helper to check if text matches the target apartment
+  const matchesApartmentText = (itemStr: string, targetApt: string): boolean => {
+    const normTarget = targetApt.toUpperCase().replace(/^WE\s*/, '').trim();
+    const linesOfText = itemStr.split('\n').map(l => l.trim().toUpperCase());
+    
+    // 1. Direct match of any line
+    if (linesOfText.includes(normTarget)) return true;
+    
+    // 2. Word match
+    for (const line of linesOfText) {
+      if (line === `WE ${normTarget}` || line === `WE${normTarget}`) return true;
+      const words = line.split(/\s+/);
+      if (words.includes(normTarget)) return true;
+    }
+    return false;
+  };
+
+  // Helper to extract the apartment number if present in text
+  const getApartmentNumberInText = (text: string): string | null => {
+    const linesOfText = text.toUpperCase().split('\n').map(l => l.trim());
+    for (const line of linesOfText) {
+      const match = line.match(/^(?:WE\s*)?([0-9]+)$/);
+      if (match) return match[1];
+    }
+    return null;
+  };
+
   // 3. Find and group room label centers belonging to this apartment
   const roomCenters: Point[] = [];
-  const roomKeywords = ['BAD', 'SCHLAFEN', 'WOHNEN', 'FLUR', 'KOCHEN', 'KÜCHE', 'KINDER', 'DIELE', 'WC', 'ABSTELL', 'BALKON', 'TERRASSE'];
+  const roomKeywords = ['BAD', 'SCHLAFEN', 'WOHNEN', 'FLUR', 'KOCHEN', 'KÜCHE', 'KINDER', 'DIELE', 'WC', 'ABSTELL', 'BALKON', 'TERRASSE', 'LOGGIA', 'SPEISEKAMMER', 'ABSTELLRAUM'];
 
   roomCandidates.forEach(cand => {
-    const norm = normalizeApartmentKey(cand.text);
     const upperText = cand.text.toUpperCase();
+    const splitLines = upperText.split('\n').map(l => l.trim());
     
-    const isCommonArea = upperText === 'G' || upperText === 'TH' || upperText === 'TR' || 
-                         upperText.includes('TREPPENHAUS') || upperText.includes('GEMEINSCHAFT');
+    // Check if it is a common area (staircase, hallway)
+    const isCommonArea = splitLines.includes('G') || splitLines.includes('TH') || splitLines.includes('TR') ||
+                         upperText.includes('TREPPENHAUS') || upperText.includes('GEMEINSCHAFT') ||
+                         splitLines.some(l => l.startsWith('G ') || l.startsWith('TH ') || l.startsWith('TR '));
     if (isCommonArea) {
       roomCenters.push({ x: cand.cx, y: cand.cy });
       return;
     }
 
-    if (norm === normalizedTarget) {
+    // Check if this text block explicitly belongs to the target apartment
+    if (matchesApartmentText(cand.text, apartmentName)) {
       roomCenters.push({ x: cand.cx, y: cand.cy });
       return;
     }
 
+    // Proximity fallback: if it's a room name and does not contain any apartment number itself,
+    // find the closest block that has an apartment number.
     const isRoomName = roomKeywords.some(keyword => upperText.includes(keyword));
-    if (isRoomName) {
-      let closestLabel: string | null = null;
-      let minDist = 60.0;
+    const selfAptNum = getApartmentNumberInText(cand.text);
+    
+    if (isRoomName && !selfAptNum) {
+      let closestApt: string | null = null;
+      let minDist = 250.0;
       
       roomCandidates.forEach(lbl => {
-        const lblNorm = normalizeApartmentKey(lbl.text);
-        if (lblNorm === normalizedTarget) {
+        const aptNum = getApartmentNumberInText(lbl.text);
+        if (aptNum) {
           const dist = Math.sqrt(Math.pow(cand.cx - lbl.cx, 2) + Math.pow(cand.cy - lbl.cy, 2));
           if (dist < minDist) {
             minDist = dist;
-            closestLabel = lblNorm;
+            closestApt = aptNum;
           }
         }
       });
       
-      if (closestLabel === normalizedTarget) {
+      if (closestApt === normalizedTarget) {
         roomCenters.push({ x: cand.cx, y: cand.cy });
       }
     }
@@ -446,46 +480,88 @@ export function getRoomRects(
   // 4. Ray-cast boundary snap for each room center to find walls
   const tolerance = 15;
 
+  // Intersect checkers
+  const hasWallBetweenH = (x0: number, x1: number, y: number): boolean => {
+    const minX = Math.min(x0, x1);
+    const maxX = Math.max(x0, x1);
+    return verticalWalls.some(w => 
+      w.coord > minX && w.coord < maxX && 
+      w.min - tolerance <= y && y <= w.max + tolerance
+    );
+  };
+
+  const hasWallBetweenV = (x: number, y0: number, y1: number): boolean => {
+    const minY = Math.min(y0, y1);
+    const maxY = Math.max(y0, y1);
+    return horizontalWalls.some(w => 
+      w.coord > minY && w.coord < maxY && 
+      w.min - tolerance <= x && x <= w.max + tolerance
+    );
+  };
+
   roomCenters.forEach(pt => {
     const cx = pt.x;
     const cy = pt.y;
 
-    let leftWall = 0;
-    verticalWalls.forEach(w => {
-      if (w.coord < cx && w.min - tolerance <= cy && cy <= w.max + tolerance) {
-        leftWall = Math.max(leftWall, w.coord);
-      }
-    });
-
-    let rightWall = pageWidth;
-    verticalWalls.forEach(w => {
-      if (w.coord > cx && w.min - tolerance <= cy && cy <= w.max + tolerance) {
-        rightWall = Math.min(rightWall, w.coord);
-      }
-    });
-
-    let upWall = 0;
-    horizontalWalls.forEach(w => {
-      if (w.coord < cy && w.min - tolerance <= cx && cx <= w.max + tolerance) {
-        upWall = Math.max(upWall, w.coord);
-      }
-    });
-
-    let downWall = pageHeight;
-    horizontalWalls.forEach(w => {
-      if (w.coord > cy && w.min - tolerance <= cx && cx <= w.max + tolerance) {
-        downWall = Math.min(downWall, w.coord);
-      }
-    });
-
-    const x0 = leftWall > 0 ? leftWall : cx - 80;
-    const x1 = rightWall < pageWidth ? rightWall : cx + 80;
-    const y0 = upWall > 0 ? upWall : cy - 80;
-    const y1 = downWall < pageHeight ? downWall : cy + 80;
+    // Generate test points around the center to capture non-rectangular shapes
+    const testPoints: Point[] = [{ x: cx, y: cy }];
     
-    if (x0 < x1 && y0 < y1) {
-      roomRects.push({ x0, y0, x1, y1 });
-    }
+    // Shifts of 40 points in left, right, up, down directions
+    const offsets = [40, -40];
+    
+    offsets.forEach(dx => {
+      if (!hasWallBetweenH(cx, cx + dx, cy)) {
+        testPoints.push({ x: cx + dx, y: cy });
+      }
+    });
+    
+    offsets.forEach(dy => {
+      if (!hasWallBetweenV(cx, cy, cy + dy)) {
+        testPoints.push({ x: cx, y: cy + dy });
+      }
+    });
+
+    testPoints.forEach(tpt => {
+      const tx = tpt.x;
+      const ty = tpt.y;
+
+      let leftWall = 0;
+      verticalWalls.forEach(w => {
+        if (w.coord < tx && w.min - tolerance <= ty && ty <= w.max + tolerance) {
+          leftWall = Math.max(leftWall, w.coord);
+        }
+      });
+
+      let rightWall = pageWidth;
+      verticalWalls.forEach(w => {
+        if (w.coord > tx && w.min - tolerance <= ty && ty <= w.max + tolerance) {
+          rightWall = Math.min(rightWall, w.coord);
+        }
+      });
+
+      let upWall = 0;
+      horizontalWalls.forEach(w => {
+        if (w.coord < ty && w.min - tolerance <= tx && tx <= w.max + tolerance) {
+          upWall = Math.max(upWall, w.coord);
+        }
+      });
+
+      let downWall = pageHeight;
+      horizontalWalls.forEach(w => {
+        if (w.coord > ty && w.min - tolerance <= tx && tx <= w.max + tolerance) {
+          downWall = Math.min(downWall, w.coord);
+        }
+      });
+
+      const x0 = leftWall > 0 ? leftWall : tx - 80;
+      const x1 = rightWall < pageWidth ? rightWall : tx + 80;
+      const y0 = upWall > 0 ? upWall : ty - 80;
+      const y1 = downWall < pageHeight ? downWall : ty + 80;
+
+      if (x0 < x1 && y0 < y1) {
+        roomRects.push({ x0, y0, x1, y1 });
+      }
+    });
   });
 
   return roomRects;
