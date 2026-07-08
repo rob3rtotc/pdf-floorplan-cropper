@@ -362,6 +362,10 @@ export function getRoomRects(
   const verticalWalls: LineSegment[] = [];
 
   lines.forEach(l => {
+    // Exclude legend lines (x > pageWidth * 0.74) and title block lines (y > pageHeight * 0.85) in viewport space
+    if (l.x0 > pageWidth * 0.74 || l.x1 > pageWidth * 0.74) return;
+    if (l.y0 > pageHeight * 0.85 || l.y1 > pageHeight * 0.85) return;
+
     const isDark = !l.color || l.color === 'black' || l.color === '#000000' || l.color.startsWith('rgb(0,') || l.color.startsWith('rgba(0,');
     if (!isDark) return;
 
@@ -447,6 +451,10 @@ export function getRoomRects(
       return;
     }
 
+    // Must be a room usage name (exclude raw apartment labels like "WE6\nWE5" or "5")
+    const isRoomName = roomKeywords.some(keyword => upperText.includes(keyword));
+    if (!isRoomName) return;
+
     // Check if this text block explicitly belongs to the target apartment
     if (matchesApartmentText(cand.text, apartmentName)) {
       roomCenters.push({ x: cand.cx, y: cand.cy });
@@ -455,10 +463,8 @@ export function getRoomRects(
 
     // Proximity fallback: if it's a room name and does not contain any apartment number itself,
     // find the closest block that has an apartment number.
-    const isRoomName = roomKeywords.some(keyword => upperText.includes(keyword));
     const selfAptNum = getApartmentNumberInText(cand.text);
-    
-    if (isRoomName && !selfAptNum) {
+    if (!selfAptNum) {
       let closestApt: string | null = null;
       let minDist = 250.0;
       
@@ -531,28 +537,28 @@ export function getRoomRects(
 
       let leftWall = 0;
       verticalWalls.forEach(w => {
-        if (w.coord < tx && w.min - tolerance <= ty && ty <= w.max + tolerance) {
+        if (w.coord < tx && tx - w.coord < 180 && w.min - tolerance <= ty && ty <= w.max + tolerance) {
           leftWall = Math.max(leftWall, w.coord);
         }
       });
 
       let rightWall = pageWidth;
       verticalWalls.forEach(w => {
-        if (w.coord > tx && w.min - tolerance <= ty && ty <= w.max + tolerance) {
+        if (w.coord > tx && w.coord - tx < 180 && w.min - tolerance <= ty && ty <= w.max + tolerance) {
           rightWall = Math.min(rightWall, w.coord);
         }
       });
 
       let upWall = 0;
       horizontalWalls.forEach(w => {
-        if (w.coord < ty && w.min - tolerance <= tx && tx <= w.max + tolerance) {
+        if (w.coord < ty && ty - w.coord < 180 && w.min - tolerance <= tx && tx <= w.max + tolerance) {
           upWall = Math.max(upWall, w.coord);
         }
       });
 
       let downWall = pageHeight;
       horizontalWalls.forEach(w => {
-        if (w.coord > ty && w.min - tolerance <= tx && tx <= w.max + tolerance) {
+        if (w.coord > ty && w.coord - ty < 180 && w.min - tolerance <= tx && tx <= w.max + tolerance) {
           downWall = Math.min(downWall, w.coord);
         }
       });
