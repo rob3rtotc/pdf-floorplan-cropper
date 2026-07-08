@@ -361,15 +361,23 @@ export function getRoomRects(
     const isDark = !l.color || l.color === 'black' || l.color === '#000000' || l.color.startsWith('rgb(0,') || l.color.startsWith('rgba(0,');
     if (!isDark) return;
 
-    const w = l.x1 - l.x0;
-    const h = l.y1 - l.y0;
-    if (w < 1 && h < 1) return;
+    const w = Math.abs(l.x1 - l.x0);
+    const h = Math.abs(l.y1 - l.y0);
+    if (w < 0.5 && h < 0.5) return;
     
-    const isHoriz = h < w;
+    const isHoriz = w > h;
     if (isHoriz) {
-      horizontalWalls.push({ coord: (l.y0 + l.y1) / 2, min: l.x0, max: l.x1 });
+      horizontalWalls.push({ 
+        coord: (l.y0 + l.y1) / 2, 
+        min: Math.min(l.x0, l.x1), 
+        max: Math.max(l.x0, l.x1) 
+      });
     } else {
-      verticalWalls.push({ coord: (l.x0 + l.x1) / 2, min: l.y0, max: l.y1 });
+      verticalWalls.push({ 
+        coord: (l.x0 + l.x1) / 2, 
+        min: Math.min(l.y0, l.y1), 
+        max: Math.max(l.y0, l.y1) 
+      });
     }
   });
 
