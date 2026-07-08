@@ -537,28 +537,28 @@ export function getRoomRects(
 
       let leftWall = 0;
       verticalWalls.forEach(w => {
-        if (w.coord < tx && tx - w.coord < 180 && w.min - tolerance <= ty && ty <= w.max + tolerance) {
+        if (w.coord < tx && tx - w.coord < 280 && w.min - tolerance <= ty && ty <= w.max + tolerance) {
           leftWall = Math.max(leftWall, w.coord);
         }
       });
 
       let rightWall = pageWidth;
       verticalWalls.forEach(w => {
-        if (w.coord > tx && w.coord - tx < 180 && w.min - tolerance <= ty && ty <= w.max + tolerance) {
+        if (w.coord > tx && w.coord - tx < 280 && w.min - tolerance <= ty && ty <= w.max + tolerance) {
           rightWall = Math.min(rightWall, w.coord);
         }
       });
 
       let upWall = 0;
       horizontalWalls.forEach(w => {
-        if (w.coord < ty && ty - w.coord < 180 && w.min - tolerance <= tx && tx <= w.max + tolerance) {
+        if (w.coord < ty && ty - w.coord < 280 && w.min - tolerance <= tx && tx <= w.max + tolerance) {
           upWall = Math.max(upWall, w.coord);
         }
       });
 
       let downWall = pageHeight;
       horizontalWalls.forEach(w => {
-        if (w.coord > ty && w.coord - ty < 180 && w.min - tolerance <= tx && tx <= w.max + tolerance) {
+        if (w.coord > ty && w.coord - ty < 280 && w.min - tolerance <= tx && tx <= w.max + tolerance) {
           downWall = Math.min(downWall, w.coord);
         }
       });

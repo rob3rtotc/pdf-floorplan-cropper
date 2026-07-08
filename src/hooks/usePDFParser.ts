@@ -71,9 +71,9 @@ export function usePDFParser() {
         y: m[1] * px + m[3] * py + m[5]
       });
 
-      const viewBox = page.viewBox || [0, 0, viewport.width, viewport.height];
-      const pdfWidth = Math.abs(viewBox[2] - viewBox[0]);
-      const pdfHeight = Math.abs(viewBox[3] - viewBox[1]);
+      const unrotatedViewport = page.getViewport({ scale: 1.0, rotation: 0 });
+      const pdfWidth = unrotatedViewport.width;
+      const pdfHeight = unrotatedViewport.height;
 
       const textItems: ParsedTextItem[] = textContent.items
         .filter((item: any) => typeof item.str === 'string' && item.str.trim() !== '')
