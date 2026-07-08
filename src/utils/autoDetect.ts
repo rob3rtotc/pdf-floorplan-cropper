@@ -490,88 +490,46 @@ export function getRoomRects(
   // 4. Ray-cast boundary snap for each room center to find walls
   const tolerance = 15;
 
-  // Intersect checkers
-  const hasWallBetweenH = (x0: number, x1: number, y: number): boolean => {
-    const minX = Math.min(x0, x1);
-    const maxX = Math.max(x0, x1);
-    return verticalWalls.some(w => 
-      w.coord > minX && w.coord < maxX && 
-      w.min - tolerance <= y && y <= w.max + tolerance
-    );
-  };
-
-  const hasWallBetweenV = (x: number, y0: number, y1: number): boolean => {
-    const minY = Math.min(y0, y1);
-    const maxY = Math.max(y0, y1);
-    return horizontalWalls.some(w => 
-      w.coord > minY && w.coord < maxY && 
-      w.min - tolerance <= x && x <= w.max + tolerance
-    );
-  };
-
   roomCenters.forEach(pt => {
-    const cx = pt.x;
-    const cy = pt.y;
+    const tx = pt.x;
+    const ty = pt.y;
 
-    // Generate test points around the center to capture non-rectangular shapes
-    const testPoints: Point[] = [{ x: cx, y: cy }];
-    
-    // Shifts of 40 points in left, right, up, down directions
-    const offsets = [40, -40];
-    
-    offsets.forEach(dx => {
-      if (!hasWallBetweenH(cx, cx + dx, cy)) {
-        testPoints.push({ x: cx + dx, y: cy });
-      }
-    });
-    
-    offsets.forEach(dy => {
-      if (!hasWallBetweenV(cx, cy, cy + dy)) {
-        testPoints.push({ x: cx, y: cy + dy });
+    let leftWall = 0;
+    verticalWalls.forEach(w => {
+      if (w.coord < tx && tx - w.coord < 280 && w.min - tolerance <= ty + 8 && ty - 8 <= w.max + tolerance) {
+        leftWall = Math.max(leftWall, w.coord);
       }
     });
 
-    testPoints.forEach(tpt => {
-      const tx = tpt.x;
-      const ty = tpt.y;
-
-      let leftWall = 0;
-      verticalWalls.forEach(w => {
-        if (w.coord < tx && tx - w.coord < 280 && w.min - tolerance <= ty && ty <= w.max + tolerance) {
-          leftWall = Math.max(leftWall, w.coord);
-        }
-      });
-
-      let rightWall = pageWidth;
-      verticalWalls.forEach(w => {
-        if (w.coord > tx && w.coord - tx < 280 && w.min - tolerance <= ty && ty <= w.max + tolerance) {
-          rightWall = Math.min(rightWall, w.coord);
-        }
-      });
-
-      let upWall = 0;
-      horizontalWalls.forEach(w => {
-        if (w.coord < ty && ty - w.coord < 280 && w.min - tolerance <= tx && tx <= w.max + tolerance) {
-          upWall = Math.max(upWall, w.coord);
-        }
-      });
-
-      let downWall = pageHeight;
-      horizontalWalls.forEach(w => {
-        if (w.coord > ty && w.coord - ty < 280 && w.min - tolerance <= tx && tx <= w.max + tolerance) {
-          downWall = Math.min(downWall, w.coord);
-        }
-      });
-
-      const x0 = leftWall > 0 ? leftWall : tx - 80;
-      const x1 = rightWall < pageWidth ? rightWall : tx + 80;
-      const y0 = upWall > 0 ? upWall : ty - 80;
-      const y1 = downWall < pageHeight ? downWall : ty + 80;
-
-      if (x0 < x1 && y0 < y1) {
-        roomRects.push({ x0, y0, x1, y1 });
+    let rightWall = pageWidth;
+    verticalWalls.forEach(w => {
+      if (w.coord > tx && w.coord - tx < 280 && w.min - tolerance <= ty + 8 && ty - 8 <= w.max + tolerance) {
+        rightWall = Math.min(rightWall, w.coord);
       }
     });
+
+    let upWall = 0;
+    horizontalWalls.forEach(w => {
+      if (w.coord < ty && ty - w.coord < 280 && w.min - tolerance <= tx + 8 && tx - 8 <= w.max + tolerance) {
+        upWall = Math.max(upWall, w.coord);
+      }
+    });
+
+    let downWall = pageHeight;
+    horizontalWalls.forEach(w => {
+      if (w.coord > ty && w.coord - ty < 280 && w.min - tolerance <= tx + 8 && tx - 8 <= w.max + tolerance) {
+        downWall = Math.min(downWall, w.coord);
+      }
+    });
+
+    const x0 = leftWall > 0 ? leftWall : tx - 100;
+    const x1 = rightWall < pageWidth ? rightWall : tx + 100;
+    const y0 = upWall > 0 ? upWall : ty - 100;
+    const y1 = downWall < pageHeight ? downWall : ty + 100;
+
+    if (x0 < x1 && y0 < y1) {
+      roomRects.push({ x0, y0, x1, y1 });
+    }
   });
 
   return roomRects;
