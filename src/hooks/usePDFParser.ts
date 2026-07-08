@@ -71,9 +71,6 @@ export function usePDFParser() {
         y: m[1] * px + m[3] * py + m[5]
       });
 
-      const unrotatedViewport = page.getViewport({ scale: 1.0, rotation: 0 });
-      const pdfWidth = unrotatedViewport.width;
-      const pdfHeight = unrotatedViewport.height;
 
       const textItems: ParsedTextItem[] = textContent.items
         .filter((item: any) => typeof item.str === 'string' && item.str.trim() !== '')
@@ -87,10 +84,10 @@ export function usePDFParser() {
           const pdfCy = ty + th / 2;
           const pt = transformPoint(viewport.transform, pdfCx, pdfCy);
           
-          // In unrotated PDF space:
-          // Legend is on the right (pdfCx > pdfWidth * 0.74)
-          // Title block is at the bottom (pdfCy < pdfHeight * 0.15)
-          const isBuildingPlan = (pdfCx <= pdfWidth * 0.74) && (pdfCy >= pdfHeight * 0.15);
+          // In display viewport space:
+          // Legend is on the right (pt.x > viewport.width * 0.74)
+          // Title block is at the bottom (pt.y > viewport.height * 0.85)
+          const isBuildingPlan = (pt.x <= viewport.width * 0.74) && (pt.y <= viewport.height * 0.85);
           
           return {
             str: item.str,

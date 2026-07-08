@@ -377,7 +377,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                 );
               })}
               
-              {/* Snapped room rectangles in blue */}
+              {/* Snapped room rectangles in blue (subtle tint only, no outline to avoid clutter) */}
               {roomRects.map((r, idx) => (
                 <rect
                   key={`rrect-${idx}`}
@@ -385,9 +385,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                   y={r.y0}
                   width={r.x1 - r.x0}
                   height={r.y1 - r.y0}
-                  fill="rgba(59, 130, 246, 0.15)"
-                  stroke="#3b82f6"
-                  strokeWidth={2 / zoom}
+                  fill="rgba(59, 130, 246, 0.04)"
                 />
               ))}
             </g>
